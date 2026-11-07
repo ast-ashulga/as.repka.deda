@@ -109,10 +109,12 @@ def _run_locked(args: argparse.Namespace, cfg, domains: list[Domain], now: datet
         try:
             boundaries = pipeline.build_boundaries(conn, cfg, domains, force=bool(args.domain), progress=_progress)
             report = pipeline.run_pass(domains, cfg, boundaries, now, send, progress=_progress)
-        except Exception as exc:  # run_pass catches stage errors; this is the net under it: the run is still recorded
-            log.exception("run #%s crashed", run_id)
+        except BaseException as exc:  # run_pass catches stage errors; this is the net under it (also Ctrl-C):
+            log.exception("run #%s crashed", run_id)  # the run is still recorded, never left without a status
             repo.finish_run(conn, run_id, "failed", {}, f"{type(exc).__name__}: {exc}")
             conn.commit()
+            if not isinstance(exc, Exception):
+                raise
             print(f"error: run crashed: {exc} (see logs/repka.log)", file=sys.stderr)
             return 1
         errors = "; ".join(report.errors) or None

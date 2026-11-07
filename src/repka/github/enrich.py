@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -285,6 +285,7 @@ def enrich_repos(
     cfg: CollectConfig,
     slow_for: set[int],
     baseline: bool = False,
+    progress: Callable[[int, int], None] | None = None,
 ) -> EnrichStats:
     """Snapshot `repo_ids` in batches of `cfg.enrich_batch`; slow REST metrics only for `slow_for`.
 
@@ -325,4 +326,6 @@ def enrich_repos(
                     conn.execute("RELEASE enrich_repo")
         finally:
             conn.commit()  # keep finished repos even if RateLimited interrupts the batch
+        if progress is not None:
+            progress(min(start + cfg.enrich_batch, len(ids)), len(ids))
     return stats

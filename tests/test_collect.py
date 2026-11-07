@@ -62,7 +62,7 @@ class Fakes:
             return self._search(conn, domain, now)
         return QueryStats(hits=1), set()
 
-    def enrich_repos(self, client, conn, domain_id, repo_ids, key_files, now, cfg, slow_for, baseline=False):
+    def enrich_repos(self, client, conn, domain_id, repo_ids, key_files, now, cfg, slow_for, baseline=False, progress=None):
         self.enriched.append(
             {"domain": domain_id, "ids": list(repo_ids), "slow_for": set(slow_for), "now": now, "baseline": baseline}
         )
