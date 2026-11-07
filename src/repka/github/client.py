@@ -256,10 +256,12 @@ class GitHubClient:
         """For a 403/429: (is_rate_limit, retry_after_seconds_if_short_enough_to_wait)."""
         retry_after = _retry_after(resp)
         remaining = resp.headers.get("x-ratelimit-remaining")
-        secondary = "rate limit" in resp.text.lower() and "secondary" in resp.text.lower()
+        text = resp.text.lower()
+        if ("secondary" in text and "rate limit" in text) or remaining == "0":
+            return True, None  # stop the run cleanly (RF1), even if Retry-After is short
         if retry_after is not None:
             return True, retry_after if retry_after <= MAX_SHORT_RETRY_AFTER else None
-        return (secondary or remaining == "0" or resp.status_code == 429), None
+        return resp.status_code == 429, None
 
     def _limited(self, resp: httpx.Response) -> RateLimited:
         retry_after = _retry_after(resp)

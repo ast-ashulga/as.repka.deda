@@ -118,6 +118,29 @@ def test_secondary_limit_raises_rate_limited():
     assert len(rec.requests) == 1 and fake.sleeps == []
 
 
+def test_secondary_body_with_short_retry_after_still_raises():
+    resp = httpx.Response(
+        403, json={"message": "You have exceeded a secondary rate limit"}, headers={"Retry-After": "30"}
+    )
+    client, rec, fake = make(resp)
+    with pytest.raises(RateLimited):
+        client.search_total_count("q")
+    assert len(rec.requests) == 1 and fake.sleeps == []
+
+
+def test_secondary_body_without_retry_after_raises():
+    client, _, _ = make(httpx.Response(403, json={"message": "You have exceeded a secondary rate limit"}))
+    with pytest.raises(RateLimited):
+        client.search_total_count("q")
+
+
+def test_long_retry_after_alone_raises_without_sleep():
+    client, rec, fake = make(httpx.Response(429, headers={"Retry-After": "120"}))
+    with pytest.raises(RateLimited):
+        client.search_total_count("q")
+    assert len(rec.requests) == 1 and fake.sleeps == []
+
+
 def test_short_retry_after_sleeps_and_retries():
     client, rec, fake = make(httpx.Response(429, headers={"Retry-After": "5"}), search_ok())
     assert client.search_total_count("q") == 1
