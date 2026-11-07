@@ -15,6 +15,7 @@ from repka import collect_cli
 from repka.config import load_config
 from repka.digest import cli as digest_cli
 from repka.domain import cli as domain_cli
+from repka.embed import cli as embed_cli
 from repka.logging_setup import setup_logging
 from repka.notify import cli as notify_cli
 from repka.store import cli as store_cli
@@ -57,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     notify_cli.register(sub)
     digest_cli.register(sub)
     triage_cli.register(sub)
+    embed_cli.register(sub)
     return parser
 
 

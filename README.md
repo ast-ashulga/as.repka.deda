@@ -66,3 +66,16 @@ uv run repka triage --json                    # the same as JSON
 Verdicts are stored; a repo is `accepted` when every threshold in `triage.thresholds` passes. A second run decides
 nothing new, and a crashed worker or a rate-limited README fetch leaves the repo pending. The command runs even
 while `triage.enabled` is false (that flag only governs `repka run`).
+
+Embeddings describe accepted repos for nearest-neighbour search. They need Ollama running with the model pulled
+(`ollama pull nomic-embed-text`):
+
+```bash
+uv run repka embed                            # embed accepted repos of every enabled domain whose text changed
+uv run repka embed --domain example-mcp --json
+uv run repka similar owner/name -k 10         # nearest repos by stored embedding (works without Ollama)
+uv run repka similar owner/name --domain example-mcp
+```
+
+If Ollama is down, `repka embed` exits 1 with a hint to start it; a missing model exits 2 with the `ollama pull`
+command. `embed.enabled` is false by default and only governs `repka run`.

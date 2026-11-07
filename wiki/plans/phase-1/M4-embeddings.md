@@ -78,6 +78,7 @@ def test_similar_cli_lists_neighbours(home, capsys)
 ```
 
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS.
+  - *Outcome (P1-T18):* `DOC_PREFIX` and `QUERY_PREFIX` are empty strings (T04: prefixes not required). `repka embed` also takes `--json`. The embed hash covers the prefixed text, so a prefix change re-embeds. Ollama down → `error:` + exit 1; model missing → exit 2.
 - [ ] **Step 5: Manual check:** after T15's manual triage, `uv run repka embed --domain <id>` then `uv run repka similar <a known accepted repo>`; paste top 5 into the report with a judgement.
 - [ ] **Step 6: Commit & push**, report. Message: `feat(embed): ollama embeddings, embed and similar commands`.
 
