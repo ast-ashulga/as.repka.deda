@@ -1,0 +1,88 @@
+{
+ "items": [
+  {
+   "id": 10,
+   "node_id": "R_10",
+   "full_name": "old/mcp-veteran",
+   "html_url": "https://github.com/old/mcp-veteran",
+   "description": "Long-lived MCP server toolkit",
+   "language": "Python",
+   "topics": [
+    "mcp"
+   ],
+   "stargazers_count": 900,
+   "forks_count": 3,
+   "fork": false,
+   "created_at": "2025-03-01T10:00:00Z",
+   "pushed_at": "2026-11-06T20:00:00Z",
+   "archived": false,
+   "license": {
+    "spdx_id": "MIT",
+    "name": "MIT License"
+   }
+  },
+  {
+   "id": 11,
+   "node_id": "R_11",
+   "full_name": "acme/mcp-github",
+   "html_url": "https://github.com/acme/mcp-github",
+   "description": "MCP server exposing GitHub as tools",
+   "language": "Python",
+   "topics": [
+    "mcp"
+   ],
+   "stargazers_count": 120,
+   "forks_count": 3,
+   "fork": false,
+   "created_at": "2026-10-25T09:00:00Z",
+   "pushed_at": "2026-11-06T20:00:00Z",
+   "archived": false,
+   "license": {
+    "spdx_id": "MIT",
+    "name": "MIT License"
+   }
+  },
+  {
+   "id": 12,
+   "node_id": "R_12",
+   "full_name": "zed/mcp-sdk-py",
+   "html_url": "https://github.com/zed/mcp-sdk-py",
+   "description": "Python SDK for building MCP clients",
+   "language": "Python",
+   "topics": [
+    "mcp"
+   ],
+   "stargazers_count": 80,
+   "forks_count": 3,
+   "fork": false,
+   "created_at": "2026-10-28T09:00:00Z",
+   "pushed_at": "2026-11-06T20:00:00Z",
+   "archived": false,
+   "license": {
+    "spdx_id": "MIT",
+    "name": "MIT License"
+   }
+  },
+  {
+   "id": 13,
+   "node_id": "R_13",
+   "full_name": "troll/mcp-blog",
+   "html_url": "https://github.com/troll/mcp-blog",
+   "description": "A blog post about MCP, no code",
+   "language": "Python",
+   "topics": [
+    "mcp"
+   ],
+   "stargazers_count": 60,
+   "forks_count": 3,
+   "fork": false,
+   "created_at": "2026-10-30T09:00:00Z",
+   "pushed_at": "2026-11-06T20:00:00Z",
+   "archived": false,
+   "license": {
+    "spdx_id": "MIT",
+    "name": "MIT License"
+   }
+  }
+ ]
+}

@@ -9,6 +9,18 @@ triages them with local decider models and sends Telegram digests.
 - `uv run pytest -q`: test suite (never touches the network)
 - `uv run ruff check src tests`: lint
 - `uv run repka --help`: CLI help; `uv run repka -v ...` adds DEBUG logs on stderr
+- `uv run repka doctor [--json]`: what is missing to run, with the fixes; `uv run repka run [--json]`: one full pass (preview unless sending is on)
+- `REPKA_HOME=<dir>`: run repka against a scratch home (its own `.config.yaml`, `.env`, `domains/`, `deciders/`, `.state/`, `logs/`); use it for rehearsals so the real setup is untouched
+
+## Architecture in short
+
+`repka run` = `pipeline.run_pass`: collect (`collect.py`: search slices + GraphQL snapshots, domains that are due) ->
+triage (`triage/`: local decider worker, verdicts in SQLite) -> embed (`embed/`: Ollama) -> digest (`digest/`:
+slots, selection, render, Telegram via `notify/`). Every boundary is injected (`pipeline.Boundaries`), a failing
+stage never blocks the digest, and each pass is a row in `runs`. State is one SQLite file (`.state/repka.db`),
+domains are YAML (`domains/`), settings `.config.yaml`, secrets `.env`. `preflight.py` backs `repka doctor` and
+runs before every `repka run`; `schedule.py` manages the launchd agent. `tests/test_e2e.py` drives a whole
+pass against fixtures and fakes.
 
 ## Where things are
 
