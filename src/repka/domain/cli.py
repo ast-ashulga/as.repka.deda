@@ -1,4 +1,4 @@
-"""`repka domain` subcommands: `list`, `show` and `plan`. `new` is added by a later task."""
+"""`repka domain` subcommands: `list`, `show`, `plan` and `new` (the interactive wizard)."""
 
 from __future__ import annotations
 
@@ -7,11 +7,21 @@ import dataclasses
 import json
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
-from repka.config import domains_dir, load_config
+from repka.config import ConfigError, domains_dir, github_token, github_token_source, load_config
 from repka.domain.matrix import build_queries, scan_window
-from repka.domain.schema import dump_domain, format_duration, get_domain, load_domains
+from repka.domain.schema import dump_domain, format_duration, get_domain, load_domains, save_domain
+from repka.domain.wizard import TerminalIO, run_wizard
+from repka.github.client import GitHubClient, GitHubError
 from repka.textutil import printable
+
+NEW_EPILOG = """\
+answers, in order (one per line when piped; Enter takes the default; a blank line ends the description):
+  name, id, description (skipped with --from-file), keyword groups ('-' for none), topics, languages,
+  excludes, min stars, fork policy, scan interval, enable now (y/N), [probe (y/N)], save (y/N)
+nothing is enabled unless you answer y; the file is written only after the final y.
+"""
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -30,6 +40,20 @@ def register(sub: argparse._SubParsersAction) -> None:
     plan.add_argument("id", help="domain id, e.g. example-mcp")
     plan.add_argument("--json", action="store_true", help="print JSON instead of a numbered list")
     plan.set_defaults(func=_cmd_plan)
+
+    new = actions.add_parser(
+        "new",
+        help="interview in the terminal and write domains/<id>.yaml",
+        epilog=NEW_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    new.add_argument("--from-file", metavar="PATH", help="read the domain description from this file")
+    new.add_argument(
+        "--probe",
+        action="store_true",
+        help="after the plan, offer to count GitHub results per query (network; needs a token)",
+    )
+    new.set_defaults(func=_cmd_new)
 
 
 def _print_help(parser: argparse.ArgumentParser) -> int:
@@ -71,4 +95,41 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         language = f"  [{q.language}]" if q.language else ""
         print(f"{number:>3}. {q.key}{language}  {printable(q.q)}")
     print(f"window: {window.field} {window.start.isoformat()}..{window.end.isoformat()} (first scan)")
+    return 0
+
+
+def _cmd_new(args: argparse.Namespace) -> int:
+    description = None
+    if args.from_file:
+        path = Path(args.from_file)
+        if not path.is_file():
+            raise ConfigError(f"no description file {path}")
+        description = path.read_text(encoding="utf-8")
+
+    client: GitHubClient | None = None
+    probe = None
+    if args.probe:
+        cfg = load_config()
+        token = github_token()  # fails now, before the interview, if there is no token
+        client = GitHubClient(token, cfg.github, token_source=github_token_source())
+        start = scan_window(None, datetime.now(timezone.utc), cfg.collect).start
+        qualifier = f"pushed:>={start.isoformat()}"
+        search = client.search_total_count
+
+        def probe(q: str) -> int:
+            return search(f"{q} {qualifier}")
+
+    try:
+        domain = run_wizard(TerminalIO(), description=description, probe=probe)
+    except GitHubError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if client is not None:
+            client.close()
+    if domain is None:
+        print("not saved", file=sys.stderr)
+        return 0
+    print(save_domain(domain))
+    print(f"next: repka domain plan {domain.id}", file=sys.stderr)
     return 0
