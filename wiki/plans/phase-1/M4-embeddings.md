@@ -25,7 +25,7 @@ Research: [storage-embeddings](../../research/storage-embeddings.md) · ADR: [AD
   - `embedding_hash(conn, repo_id: int, model: str) -> str | None`.
   - `load_matrix(conn, model: str, repo_ids: Iterable[int] | None = None) -> tuple[list[int], np.ndarray]` — ids and an L2-normalized `(n, dim)` float32 matrix (used by Phase 2).
   - `class VectorIndex(Protocol)`: `knn(query: Sequence[float], k: int, candidates: set[int] | None = None) -> list[tuple[int, float]]` → `(repo_id, cosine_similarity)` sorted desc.
-  - `NumpyIndex(conn, model)`; `SqliteVecIndex(conn, model)` (table `vec_index_<slug(model)>`, `embedding float[dim] distance_metric=cosine`, `sync()` inserts missing/changed rows from `embeddings`); `vec_available(conn) -> bool`; `get_index(conn, model: str, prefer_vec: bool = True) -> VectorIndex` (falls back silently to numpy, logs once at INFO).
+  - `NumpyIndex(conn, model)` (loads the model's matrix once); `get_index(conn, model: str) -> VectorIndex` (returns `NumpyIndex`). No `SqliteVecIndex`, `vec_available` or `prefer_vec` (see Step 3 note).
 
 - [ ] **Step 1: Write failing tests**
 
@@ -40,6 +40,7 @@ def test_get_index_falls_back_when_extension_missing(monkeypatch)
 ```
 
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** If the T02 verdict was NO-GO, implement `SqliteVecIndex` anyway only if trivial; otherwise leave it out, keep `get_index` returning `NumpyIndex`, and note it. **Step 4: Run** → PASS.
+  - *Outcome (P1-T17):* T02 was NO-GO, so the vec0 path was dropped together with its two tests (`test_vec_and_numpy_agree_on_top_k`, `test_get_index_falls_back_when_extension_missing`). `get_index(conn, model)` takes no `prefer_vec` argument.
 - [ ] **Step 5: Commit & push**, report. Message: `feat(store): vector store with sqlite-vec and numpy fallback`.
 
 **Acceptance criteria:** identical top-k from both paths (when vec is available); vectors of different models never mix.

@@ -164,7 +164,7 @@ Created by migrations in `src/repka/store/migrations/`. All timestamps are UTC I
 | `events` | **id** INT AUTO, repo_id, domain_id NULL, kind TEXT, payload_json, detected_at, digest_id NULL | kinds: `new_repo`, `release`, `key_file_changed`, `stack_changed` (star movers are computed from `snapshots` at digest time, not stored as events) |
 | `verdicts` | **repo_id, domain_id, model, questions_hash**, input_hash, answers_json, accepted INT, decided_at | latest per key |
 | `embeddings` | **repo_id, model**, dim INT, input_hash, vector BLOB (float32 LE), created_at | source of truth for vectors |
-| ~~`vec_index_<model_slug>`~~ | not created: no `vec0` index (P1-T02 NO-GO); KNN is numpy brute force over `embeddings` | deviation, see [P1-T17](plans/phase-1/M4-embeddings.md#p1-t17-vector-store-with-fallback) |
+| ~~`vec_index_<model_slug>`~~ | not created: no `vec0` index (P1-T02 NO-GO); KNN is numpy brute force over `embeddings` | deviation, see [P1-T17](../plans/phase-1/M4-embeddings.md#p1-t17-vector-store-with-fallback) |
 | `search_cursor` | **domain_id, query_key, slice**, completed_at, total_count, capped INT | resume after rate limit |
 | `http_cache` | **url**, etag, body, fetched_at | conditional REST requests |
 | `digests` | **id** INT AUTO, slot TEXT, local_date TEXT, status `sent`/`empty`/`skipped`/`failed`/`preview`, item_count, sent_at; UNIQUE(slot, local_date) | `preview` rows are never written (preview changes no state) |
