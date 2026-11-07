@@ -169,7 +169,7 @@ Created by migrations in `src/repka/store/migrations/`. All timestamps are UTC I
 | `http_cache` | **url**, etag, body, fetched_at | conditional REST requests |
 | `digests` | **id** INT AUTO, slot TEXT, local_date TEXT, status `sent`/`empty`/`skipped`/`failed`/`preview`, item_count, sent_at; UNIQUE(slot, local_date) | `preview` rows are never written (preview changes no state) |
 | `digest_items` | **digest_id, repo_id, kind** | what each sent digest showed; used to show a "mover" at most once per 24 h |
-| `runs` | **id** INT AUTO, started_at, finished_at, status `ok`/`partial`/`failed`, stats_json, error | |
+| `runs` | **id** INT AUTO, kind TEXT, started_at, finished_at, status `ok`/`partial`/`failed` (NULL while running), stats_json, error | `kind` added in P1-T09 so `start_run(kind)` can be stored |
 
 ## 5. Pipeline semantics
 
@@ -214,6 +214,7 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | `repka notify test "text" [--dry-run]` / `notify chats` | Telegram connectivity helpers | P1-T20 |
 | `repka run [--send] [--domain ID]` | one full pass (what launchd calls) | P1-T22 |
 | `repka schedule install\|uninstall\|status` | launchd agent | P1-T23 |
+| `repka db migrate` | create or upgrade `.state/repka.db` (idempotent) | P1-T09 |
 | `repka db stats` | row counts, last runs | P1-T09 |
 
 Exit codes: `0` ok; `1` runtime failure (worker crash, network after retries); `2` configuration/usage error (`ConfigError`, `ValueError`). stdout = results (`--json` where offered); stderr = progress and logs. Logs also go to `logs/repka.log` (rotating, 5 × 1 MB).
