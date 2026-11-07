@@ -89,6 +89,11 @@ def link_domain_repo(conn: sqlite3.Connection, domain_id: str, repo_id: int, que
     )
 
 
+def domain_has_repo(conn: sqlite3.Connection, domain_id: str, repo_id: int) -> bool:
+    row = conn.execute("SELECT 1 FROM domain_repos WHERE domain_id = ? AND repo_id = ?", (domain_id, repo_id)).fetchone()
+    return row is not None
+
+
 def mark_repo_gone(conn: sqlite3.Connection, repo_id: int) -> None:
     conn.execute("UPDATE repos SET status = 'gone' WHERE repo_id = ?", (repo_id,))
 
