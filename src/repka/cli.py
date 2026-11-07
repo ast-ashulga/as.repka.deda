@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from repka import __version__
 from repka.config import load_config
 from repka.logging_setup import setup_logging
+from repka.store import cli as store_cli
 
 DESCRIPTION = (
     "repka: monitor GitHub repositories in user-defined technology domains, "
@@ -43,8 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"repka {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true", help="also log DEBUG messages to stderr")
-    parser.add_subparsers(dest="command", metavar="COMMAND")
+    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     # Subcommands register here: each module exposes register(sub) and is called from this function.
+    store_cli.register(subparsers)
     return parser
 
 
