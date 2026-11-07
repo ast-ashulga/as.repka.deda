@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# repka: Telegram session (full account access)
+.sessions/
+*.session
+*.session-journal
