@@ -11,7 +11,7 @@ import sys
 from collections.abc import Sequence
 
 from repka import __version__
-from repka import collect_cli, run_cli
+from repka import collect_cli, run_cli, schedule
 from repka.config import load_config
 from repka.digest import cli as digest_cli
 from repka.domain import cli as domain_cli
@@ -60,6 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     triage_cli.register(sub)
     embed_cli.register(sub)
     run_cli.register(sub)
+    schedule.register(sub)
     return parser
 
 

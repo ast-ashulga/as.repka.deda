@@ -224,7 +224,7 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | `repka notify login` | one-time interactive Telegram login (`fast-mcp-telegram-setup`; session in `.sessions/telegram.session`) | P1-T20 |
 | `repka notify test "text" [--dry-run]` | send one HTML-escaped message to `notify.chat_id`; refused (exit 2) unless `notify.enabled: true`; `--dry-run` opens no session | P1-T20 |
 | `repka run [--send] [--domain ID] [--json]` | one full pass (what launchd calls): collect (due domains) → triage (`triage.enabled`) → embed (`embed.enabled`) → digest (always built; sent only with `--send`/`run.send`, which needs `notify.enabled`, else exit 2 before any work). Progress on stderr, summary + hints on stdout (`--json`: full report incl. digest text on stdout, one summary line on stderr). `--domain` forces that (enabled) domain. Status `ok`/`partial`/`failed` recorded in `runs`; exit 0 for ok and partial, 1 for failed, 2 for config errors; a busy `.state/run.lock` → message + exit 0 | P1-T22 |
-| `repka schedule install\|uninstall\|status` | launchd agent | P1-T23 |
+| `repka schedule install [--dry-run] [--interval 1h]\|uninstall\|status` | one launchd user agent `com.repka.run` (`~/Library/LaunchAgents/com.repka.run.plist`) running `uv run --project <root> repka run` every interval; no secrets or env vars in the plist; `logs/launchd.log`. `install` replaces an existing agent (bootout, then bootstrap); `uninstall` and re-install are idempotent; `install` warns (exit 0) when notify or run.send is off. Only these commands touch launchd (never automatic); exit 1 when launchctl refuses | P1-T23 |
 | `repka db migrate` | create or upgrade `.state/repka.db` (idempotent) | P1-T09 |
 | `repka db stats` | row counts, last runs | P1-T09 |
 

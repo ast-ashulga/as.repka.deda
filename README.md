@@ -98,3 +98,17 @@ A stage that fails never stops the digest: a GitHub rate limit or a crashed deci
 (triage disabled, nothing due, preview only). Two runs never overlap, and every run is a row in `runs`
 (`repka db stats`). The very first run of a domain can take a long time (GraphQL enrichment is about 20 s per 50
 repos): progress lines on stderr show where it is, and an interrupted run resumes.
+
+## Scheduling (launchd)
+
+Nothing is scheduled until you ask for it. `repka schedule install` writes a launchd user agent that runs
+`repka run` hourly; it sends digests only when `notify.enabled` and `run.send` are both true.
+
+```bash
+uv run repka schedule install --dry-run   # print the plist, change nothing
+uv run repka schedule install             # every hour (--interval 30m to change it); replaces an old agent
+uv run repka schedule status
+uv run repka schedule uninstall
+```
+
+The plist holds no secrets; logs go to `logs/launchd.log`.
