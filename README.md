@@ -29,7 +29,8 @@ uv run repka db stats                   # row counts afterwards
 
 The first scan of a domain (window `collect.first_window`) is a silent baseline: no "new repo" events.
 A GitHub rate limit stops the run cleanly (status `partial`, exit 0); what was collected is kept and the
-next `repka collect` continues. Running it again right away reports the domain as not due.
+next `repka collect` continues (a partial domain is due again at once). After a completed scan, running
+it again right away reports the domain as not due.
 
 ## Telegram (digest delivery)
 
