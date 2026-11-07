@@ -410,8 +410,14 @@ def session_dir() -> Path:
     return path
 
 
+def session_file_path() -> Path:
+    """Where the Telegram session lives. Read-only: creates nothing (preflight/doctor use this)."""
+    return project_root() / ".sessions" / f"{_SESSION_NAME}.session"
+
+
 def session_file() -> Path:
-    return session_dir() / f"{_SESSION_NAME}.session"
+    session_dir()  # makes sure the owner-only directory exists
+    return session_file_path()
 
 
 def require_session() -> Path:

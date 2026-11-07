@@ -30,11 +30,11 @@ MAX_SHORT_RETRY_AFTER = 60  # a Retry-After up to this many seconds is slept out
 SERVER_RETRY_DELAYS = (1, 2, 4)  # 5xx / transport errors: 3 retries
 SEARCH_WINDOW_S = 60.0
 
-_FIX_ENV = (
+FIX_ENV = (
     "create a new token at https://github.com/settings/tokens and replace REPKA_GITHUB_TOKEN "
     "in .env (or empty it to use the gh login)"
 )
-_FIX_GH = "run `gh auth login`"
+FIX_GH = "run `gh auth login`"
 
 
 class GitHubError(RuntimeError):
@@ -249,7 +249,7 @@ class GitHubClient:
             return None
 
     def _auth_error(self) -> AuthError:
-        fix = _FIX_GH if self._token_source == "gh" else _FIX_ENV
+        fix = FIX_GH if self._token_source == "gh" else FIX_ENV
         return AuthError(f"GitHub rejected the token (expired, revoked or invalid): {fix}")
 
     def _rate_limit_check(self, resp: httpx.Response) -> tuple[bool, float | None]:

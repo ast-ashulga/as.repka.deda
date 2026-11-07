@@ -135,6 +135,8 @@ def test_run_stops_on_errors_before_lock(home)
 
 **Acceptance criteria:** on a fresh clone `uv run repka doctor` prints a complete numbered to-do list; an expired or revoked GitHub token is reported by `repka doctor` and stops `repka run` before any search; the only network call in preflight is one `GET /user`, and no model is imported.
 
+**As built (deviations, P1-T24):** (1) `preflight.diagnose(cfg, *, send, auth_probe, now) -> list[Result]` returns every check including the ok ones (`Result(id, status ok|warn|error, title, fix)`); `check()` is the plan's signature and returns only the problems as `Finding`s (errors first) via `findings_of`. `format_results` prints the one-line-per-check view. (2) `repka doctor` lives in `src/repka/doctor_cli.py` (registered in `cli.py`) and adds `--send` and `--json`; it prints the per-check lines followed by the numbered to-do list when there are problems. (3) `repka run` calls `preflight.check` after domain selection and before the lock; on errors it prints the list on stderr, `error: repka run did not start...` and exits 2; warnings are printed and the run continues. (4) New checks beyond the plan: `triage.allow_remote` for a remote model, and `send` requested while `notify.enabled` is false. With `triage.online: true` missing weights are a warning. (5) `github.client.FIX_ENV` / `FIX_GH` are now public (the preflight reuses the T10 fix wording); `config.session_file_path()` is a non-creating variant of `session_file()` (preflight never creates `.sessions/`). (6) Existing CLI tests in `tests/test_pipeline.py` stub `preflight.check` with an autouse fixture.
+
 ---
 
 ### P1-T25: End-to-end rehearsal and README

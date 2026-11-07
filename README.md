@@ -80,6 +80,20 @@ uv run repka similar owner/name --domain example-mcp
 If Ollama is down, `repka embed` exits 1 with a hint to start it; a missing model exits 2 with the `ollama pull`
 command. `embed.enabled` is false by default and only governs `repka run`.
 
+## Checking readiness (`doctor`)
+
+```bash
+uv run repka doctor            # one line per check: ok / warn / error, with the exact fix
+uv run repka doctor --send     # also check what sending the digest needs (Telegram credentials, session)
+uv run repka doctor --json     # same, machine-readable (for scripts and agents)
+```
+
+`doctor` lists every missing piece at once: GitHub token (an expired or revoked one is an error with the fix for
+where it comes from, `.env` or `gh`; one expiring within 7 days is a warning), enabled domains, decider model
+(environment and downloaded weights), Ollama, Telegram. Exit 2 when something must be fixed, 0 otherwise. It reads
+files only; the one network call is `GET /user` to verify the token. `repka run` performs the same checks first and
+stops with exit 2 on errors before any search; warnings are printed and the run continues.
+
 ## Running everything
 
 `repka run` is one full pass for the enabled domains: collect (domains that are due) -> triage (if

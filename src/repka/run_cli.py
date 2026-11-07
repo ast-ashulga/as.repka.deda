@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import UTC, datetime
 
-from repka import pipeline
+from repka import pipeline, preflight
 from repka.collect_cli import _line
 from repka.config import ConfigError, domains_dir, load_config, state_dir
 from repka.domain.schema import Domain, get_domain, load_domains
@@ -87,6 +87,12 @@ def _run(args: argparse.Namespace) -> int:
             "set `notify.enabled: true` in .config.yaml, or drop --send"
         )
     domains = _select(args.domain)
+    findings = preflight.check(cfg, send=send)  # before the lock and before any search or database write
+    if findings:
+        print(preflight.format_findings(findings), file=sys.stderr)
+    if any(f.level == "error" for f in findings):
+        print("error: repka run did not start: fix the errors above (all checks: uv run repka doctor)", file=sys.stderr)
+        return 2
     now = datetime.now(UTC).replace(microsecond=0)
     try:
         with RunLock(state_dir() / "run.lock"):
@@ -101,7 +107,6 @@ def _run_locked(args: argparse.Namespace, cfg, domains: list[Domain], now: datet
     boundaries = None
     try:
         migrate(conn)
-        # T24 adds the preflight (token, Ollama, Telegram session) here.
         run_id = repo.start_run(conn, "run")
         conn.commit()
         started = time.monotonic()

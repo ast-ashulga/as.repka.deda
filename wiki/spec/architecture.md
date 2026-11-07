@@ -213,7 +213,7 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 
 | Command | Purpose | Task |
 |---|---|---|
-| `repka doctor` | preflight report, numbered to-do list | P1-T24 |
+| `repka doctor [--send] [--json]` | preflight: one line per check (`ok`/`warn`/`error`, check id, finding, `-> fix:` command), then a numbered to-do list of the problems (errors first); `--json`: `{ok, errors, warnings, checks[{id,status,title,fix}]}`. Checks: GitHub token (`.env` or `gh`) and one `GET /user` (expired/revoked: error with the fix for the token's source; expiring within 7 days or unreachable: warning), enabled domains, triage model/venv/weights/thresholds (if `triage.enabled`), `ollama` on PATH (if `embed.enabled`), Telegram credentials/session/chat (if sending), warnings when triage or sending is off. Reads files only, loads no model. Exit 2 on errors, else 0. `repka run` runs the same checks before the lock: it prints the list to stderr and exits 2 on errors, warnings continue | P1-T24 |
 | `repka domain new [--from-file PATH] [--probe]` | interactive wizard (answers may be piped, one per line) → `domains/<id>.yaml`; `--probe` counts GitHub results per query (network) | P1-T07 |
 | `repka domain list` / `show <id>` / `plan <id> [--json]` | inspect domains and expanded query matrix | P1-T05/T06 |
 | `repka collect [--domain ID] [--dry-run] [--json]` | search + enrich due (or given) domains; progress on stderr, summary (or `--json`) on stdout; takes `.state/run.lock`; a rate limit ends the run `partial` with exit 0 | P1-T13 |

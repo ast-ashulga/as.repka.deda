@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from repka import pipeline
+from repka import pipeline, preflight
 from repka.cli import main
 from repka.collect import CollectReport, DomainReport
 from repka.config import AppConfig, EmbedConfig, TriageConfig
@@ -130,6 +130,12 @@ def test_real_collect_boundary_builds_no_client_when_nothing_is_due(tmp_path, mo
 
 
 # ---- CLI ---------------------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def preflight_ok(monkeypatch):
+    """`repka run` preflight (token, GET /user, models) is covered in test_preflight; here it always passes."""
+    monkeypatch.setattr(preflight, "check", lambda *a, **k: [])
 
 
 def write_domain(home, domain_id="alpha", enabled="true"):
