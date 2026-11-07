@@ -17,6 +17,7 @@ from repka.domain import cli as domain_cli
 from repka.logging_setup import setup_logging
 from repka.notify import cli as notify_cli
 from repka.store import cli as store_cli
+from repka.triage import cli as triage_cli
 
 DESCRIPTION = (
     "repka: monitor GitHub repositories in user-defined technology domains, "
@@ -53,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     store_cli.register(sub)
     notify_cli.register(sub)
     digest_cli.register(sub)
+    triage_cli.register(sub)
     return parser
 
 

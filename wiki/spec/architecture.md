@@ -207,7 +207,7 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | `repka domain new [--from-file PATH] [--probe]` | interactive wizard (answers may be piped, one per line) → `domains/<id>.yaml`; `--probe` counts GitHub results per query (network) | P1-T07 |
 | `repka domain list` / `show <id>` / `plan <id> [--json]` | inspect domains and expanded query matrix | P1-T05/T06 |
 | `repka collect [--domain ID] [--dry-run]` | search + enrich due (or given) domains | P1-T13 |
-| `repka triage [--domain ID] [--dry-run] [--limit N]` | run deciders on pending repos | P1-T15 |
+| `repka triage [--domain ID] [--limit N] [--dry-run] [--json]` | run deciders on pending repos (all enabled domains, or one); summary + table `repo · relevant p · substance · kind · accepted` on stdout; runs even when `triage.enabled` is false (stderr note: that flag only governs `repka run`); `--dry-run` prints the pending count and the first model input, loads no model, writes nothing; worker crash → `error:` + exit 1, repos stay pending | P1-T15 |
 | `repka embed [--domain ID]` | compute missing embeddings | P1-T18 |
 | `repka similar <owner/name> [-k 10]` | nearest repos by embedding (debug aid) | P1-T18 |
 | `repka digest [--slot HH:MM] [--send] [--dry-run]` | preview the pending digest on stdout (default and `--dry-run`: read-only connection, nothing sent or written); when no slot is due, the CLI previews the latest passed slot anyway (stderr note). `--send` needs `notify.enabled: true` (exit 2 otherwise), sends the due slot and records it | P1-T21 |
