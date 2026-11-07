@@ -76,9 +76,10 @@ def due_domains(domains: list[Domain], states: dict[str, DomainState], now: date
     return due
 
 
-def _enrich_targets(conn: sqlite3.Connection, domain_id: str, since: str | None) -> tuple[list[int], set[int]]:
-    """(repos to snapshot, accepted ids). Targets: everything matched since the last complete scan
-    (includes slices stored by an earlier partial run), accepted repos, and repos never snapshotted."""
+def _enrich_targets(conn: sqlite3.Connection, domain_id: str) -> tuple[list[int], set[int]]:
+    """(repos to snapshot, accepted ids). Targets: repos matched after their latest snapshot (this scan's
+    finds, and finds of an earlier interrupted run that never got enriched), repos never snapshotted, and
+    all accepted repos. `gone` repos are skipped."""
     targets: list[int] = []
     accepted: set[int] = set()
     for row in repo.repos_for_domain(conn, domain_id):
@@ -87,12 +88,8 @@ def _enrich_targets(conn: sqlite3.Connection, domain_id: str, since: str | None)
         is_accepted = row["accepted"] == 1
         if is_accepted:
             accepted.add(row["repo_id"])
-        if (
-            is_accepted
-            or since is None
-            or row["last_matched_at"] > since
-            or repo.latest_snapshot(conn, row["repo_id"]) is None
-        ):
+        latest = repo.latest_snapshot(conn, row["repo_id"])
+        if is_accepted or latest is None or iso(latest.taken_at) < row["last_matched_at"]:
             targets.append(row["repo_id"])
     return targets, accepted
 
@@ -135,7 +132,7 @@ def _collect_one(
     search, _seen = collect_search(
         client, conn, d, window, iso(now), limit, emit_new, per_page=cfg.github.per_page, progress=on_query
     )
-    targets, accepted = _enrich_targets(conn, d.id, state.last_scan_at)
+    targets, accepted = _enrich_targets(conn, d.id)
     say(f"{prefix}   enriching {len(targets)} repos ({len(accepted & set(targets))} accepted get slow metrics)")
     enrich = enrich_repos(client, conn, d.id, targets, d.key_files, now, cfg.collect, accepted)
 

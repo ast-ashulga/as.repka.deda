@@ -144,7 +144,7 @@ def test_enrich_targets_cover_earlier_partial_run_and_accepted(conn, monkeypatch
     conn.commit()
     fakes = Fakes(monkeypatch)
     collect_domains(None, conn, [domain()], CFG, NOW)
-    # 1: old and snapshotted -> skipped | 2: matched since last scan | 3: accepted | 4: never snapshotted | 5: gone
+    # 1: snapshotted after its last match -> skipped | 2: matched after its snapshot | 3: accepted | 4: never snapshotted | 5: gone
     assert fakes.enriched[0]["ids"] == [2, 3, 4]
     assert fakes.enriched[0]["slow_for"] == {3}
     assert fakes.enriched[0]["now"] == NOW
