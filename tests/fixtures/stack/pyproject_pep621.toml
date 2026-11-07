@@ -1,0 +1,11 @@
+[project]
+name = "demo"
+version = "0.1.0"
+dependencies = [
+    "httpx>=0.27",
+    "Pydantic[email]>2; python_version >= '3.9'",
+    "typing_extensions",
+]
+
+[tool.ruff]
+line-length = 100
