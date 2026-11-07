@@ -89,6 +89,11 @@ def link_domain_repo(conn: sqlite3.Connection, domain_id: str, repo_id: int, que
     )
 
 
+def domain_has_repo(conn: sqlite3.Connection, domain_id: str, repo_id: int) -> bool:
+    row = conn.execute("SELECT 1 FROM domain_repos WHERE domain_id = ? AND repo_id = ?", (domain_id, repo_id)).fetchone()
+    return row is not None
+
+
 def mark_repo_gone(conn: sqlite3.Connection, repo_id: int) -> None:
     conn.execute("UPDATE repos SET status = 'gone' WHERE repo_id = ?", (repo_id,))
 
@@ -179,6 +184,28 @@ def insert_key_file(conn: sqlite3.Connection, kf: KeyFile, deps: list[str] | Non
             first_seen_at = excluded.first_seen_at
         """,
         (kf.repo_id, kf.path, kf.blob_oid, None if deps is None else json.dumps(deps), now),
+    )
+
+
+def slow_metrics_fetched_at(conn: sqlite3.Connection, repo_id: int) -> tuple[str | None, str | None]:
+    """(contributors_at, participation_at): when each slow metric was last fetched successfully."""
+    row = conn.execute(
+        "SELECT contributors_at, participation_at FROM repos WHERE repo_id = ?", (repo_id,)
+    ).fetchone()
+    return (row["contributors_at"], row["participation_at"]) if row else (None, None)
+
+
+def mark_slow_metrics(
+    conn: sqlite3.Connection, repo_id: int, contributors_at: str | None, participation_at: str | None
+) -> None:
+    """Record successful slow-metric fetches; a None argument leaves that stamp unchanged."""
+    conn.execute(
+        """
+        UPDATE repos SET contributors_at = COALESCE(?, contributors_at),
+                         participation_at = COALESCE(?, participation_at)
+        WHERE repo_id = ?
+        """,
+        (contributors_at, participation_at, repo_id),
     )
 
 
