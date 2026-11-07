@@ -19,6 +19,17 @@
 - Step checkboxes inside a task are your working notes. The **GitHub issue (labels + open/closed) is the only authoritative progress tracker.** Post anything a later reader needs (deviations, spike verdicts, blockers) as an issue comment as well as in the docs.
 - **Parallel work:** when several agents run in one wave, each works in its own worktree on a branch `task/<id>` (e.g. `task/P1-T06`), commits and pushes that branch, and merges it into `main` (fast-forward or merge commit, no force) once its suite passes on top of the latest `main`. Status is tracked on the GitHub issues (each implementer updates only its own issue), so there is no shared status file to conflict on. Shared files such as `src/repka/cli.py` (subcommand registration) and `models.py` are edited by *appending*; resolve merge conflicts by keeping both sides.
 
+## 2a. Model selection for sub-agents
+
+**User rule: spawn sub-agents on the cheapest model that can do the job.** When a task is implemented in agentic mode (e.g. via `superpowers:subagent-driven-development`), the orchestrator picks the model per task:
+
+1. **Haiku is preferred.** If the task can be implemented by Haiku, use Haiku. Typical fit: a task with fully specified names/signatures/tests and little design freedom — scaffolding, models/dataclasses, config keys, simple CLI wiring, fixture-driven parsers, docs updates, mechanical fixes.
+2. **Otherwise Sonnet, advised by Opus.** If the task needs real judgment (non-trivial algorithms, concurrency or subprocess handling, ambiguous integration, debugging that does not converge, plan deviations), implement it with a Sonnet sub-agent and have Opus advise it: Opus reviews the approach before implementation starts and the result before the task is declared done, but does not write the code.
+3. **Do not start with Opus as the implementer, and do not start on Sonnet "to be safe".** Begin with the cheapest model that plausibly fits; escalate (Haiku → Sonnet + Opus advice) only if it fails Definition of Done or gets stuck. Record the escalation and why in the task report.
+4. Review sub-agents follow the same ladder — Haiku for mechanical checks (suite/ruff/acceptance checklist), Sonnet + Opus advice for design-level review.
+
+The model used for each task is stated in its report (`Model:` line, see § 4).
+
 ## 3. Definition of Done (every task)
 
 A task is `done` when all of these hold:
@@ -36,6 +47,7 @@ A task is `done` when all of these hold:
 ```
 Task: P1-Txx <title>
 Issue: #<n> · Status: review | blocked
+Model: haiku | sonnet+opus-advice (escalated from <model>: <why>, if applicable)
 Changed files: <list>
 Tests: <command> → <N passed>
 Acceptance: <each criterion → met / not met (why)>

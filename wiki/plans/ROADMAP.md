@@ -27,6 +27,7 @@ Every task's requirements implicitly include this section.
 9. **macOS / Apple Silicon** is the only target platform. Python ≥ 3.12 via uv. `uv.lock` committed.
 10. Model revisions pinned to full 40-character commit hashes; workers run offline unless `triage.online`.
 11. **No real-time alerts.** The only outbound messages are digests at configured slots; empty digests are not sent.
+12. **Cost-aware sub-agents** (user rule): in agentic mode, implementation is delegated to sub-agents on the cheapest model that can do the task — **Haiku preferred**; otherwise **Sonnet advised by Opus**. See [AGENT-GUIDE § 2a](AGENT-GUIDE.md#2a-model-selection-for-sub-agents).
 
 ## Review Focus
 
