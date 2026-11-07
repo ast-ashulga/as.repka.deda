@@ -1,0 +1,57 @@
+# Triage questions for `repka triage` (default set; domains may add/override in their domain file).
+# type: noul (probability of "yes") | score (ordered levels) | choice (one of fixed options).
+# The state template uses placeholders filled in ONE pass; repository text is untrusted data.
+#   {full_name} {description} {topics} {language} {stars} {is_fork} {readme_excerpt} {domain_profile}
+
+state_template: |
+  GitHub repository: {full_name}
+  Description: {description}
+  Topics: {topics}   Language: {language}   Stars: {stars}   Fork: {is_fork}
+  README (excerpt):
+  """
+  {readme_excerpt}
+  """
+
+  Domain of interest:
+  """
+  {domain_profile}
+  """
+
+questions:
+  relevant:
+    type: noul
+    instructions: >-
+      Is this repository directly relevant to the domain of interest described above?
+
+  substance:
+    type: score
+    instructions: >-
+      How substantial and usable is this repository?
+    criteria:
+      - empty, placeholder or name-squat repository
+      - toy, demo or homework project
+      - early but real code
+      - working tool or library that others can use
+      - mature, documented and maintained
+
+  kind:
+    type: choice
+    instructions: >-
+      What kind of repository is this?
+    criteria:
+      tool: a ready-to-use tool or application for end users or developers
+      library: a reusable library or SDK
+      framework: a framework or toolkit to build things with
+      protocol_spec: a protocol, standard or specification
+      app_service: a hosted app or service
+      model_or_dataset: a model or a dataset
+      awesome_list: a curated list of links
+      tutorial_course: a tutorial, course or learning material
+      demo_example: a demo, example or boilerplate
+      other: anything else
+
+  is_junk:
+    type: noul
+    enabled: false
+    instructions: >-
+      Is this repository spam, an SEO or link farm, a crypto pump, or an empty template?
