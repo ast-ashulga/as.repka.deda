@@ -95,9 +95,7 @@ class TelegramUserSender:
         try:
             async with self._factory() as session:
                 outcome.append(await deliver_parts(session, self._chat_id, parts, self._topic_id))
-        except BaseException as exc:  # noqa: BLE001 - incl. the ExceptionGroup anyio raises on close
-            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
-                raise
+        except Exception as exc:  # noqa: BLE001 - incl. the ExceptionGroup anyio raises on close
             if outcome:  # delivery finished; only closing the session failed. Do not report sent parts as lost.
                 print(f"warning: closing the Telegram session failed: {type(exc).__name__}", file=sys.stderr)
                 return outcome[0]

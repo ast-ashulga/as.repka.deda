@@ -33,6 +33,8 @@ def _test(args: argparse.Namespace) -> int:
         return 0
     if not cfg.enabled:
         raise ConfigError("notify.enabled is false: nothing is sent. Set `notify.enabled: true` in .config.yaml")
+    config.telegram_credentials()  # ConfigError (exit 2) with a fix hint, not a failed send (exit 1)
+    config.require_session()
     result = TelegramUserSender(cfg.chat_id, cfg.topic_id).send(parts)
     if not result.ok:
         print(f"error: send failed after {result.sent} part(s): {result.error}", file=sys.stderr)
