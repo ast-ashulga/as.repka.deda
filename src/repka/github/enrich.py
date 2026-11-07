@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from repka.config import CollectConfig
+from repka.config import CollectConfig, ConfigError
 from repka.github.client import GitHubClient, GitHubError, RateLimited
 from repka.github.stack import parse_deps
 from repka.models import Event, KeyFile, Snapshot
@@ -227,6 +227,45 @@ def _key_file_events(
     return events
 
 
+def _enrich_one(
+    client: GitHubClient,
+    conn: sqlite3.Connection,
+    domain_id: str,
+    repo_id: int,
+    node: dict | None,
+    full_name: str,
+    aliases: dict[str, str],
+    texts: dict[str, str | None],
+    now: datetime,
+    cfg: CollectConfig,
+    slow_for: set[int],
+    stats: EnrichStats,
+) -> None:
+    if not node:  # deleted / private / not a repository: keep history
+        mark_repo_gone(conn, repo_id)
+        stats.gone += 1
+        return
+    prev = latest_snapshot(conn, repo_id)
+    if prev is not None and _iso(prev.taken_at) == _iso(now):
+        return  # already enriched at this instant (same repo in two domains of one run)
+    snap = snapshot_from_node(node, now, prev)
+    stamps = (None, None)
+    if repo_id in slow_for:
+        snap, *stamps = _refresh_slow(client, conn, snap, full_name, now, cfg)
+    insert_snapshot(conn, snap)
+    mark_slow_metrics(conn, repo_id, *stamps)
+    events = []
+    release = _release_event(repo_id, domain_id, snap, prev, node, now)
+    if release:
+        events.append(release)
+    events += _key_file_events(conn, repo_id, domain_id, node, aliases, texts, now)
+    for event in events:
+        add_event(conn, event)
+    stats.slow_refreshed += any(stamps)
+    stats.events += len(events)
+    stats.repos += 1
+
+
 def enrich_repos(
     client: GitHubClient,
     conn: sqlite3.Connection,
@@ -249,7 +288,6 @@ def enrich_repos(
         else:
             rows[repo_id] = row
     ids = list(rows)
-    now_s = _iso(now)
 
     for start in range(0, len(ids), cfg.enrich_batch):
         batch = ids[start : start + cfg.enrich_batch]
@@ -260,29 +298,18 @@ def enrich_repos(
         texts = _fetch_texts(client, _changed_blobs(conn, batch, nodes, aliases))
         try:
             for repo_id, node in zip(batch, nodes):
-                if not node:  # deleted / private / not a repository: keep history
-                    mark_repo_gone(conn, repo_id)
-                    stats.gone += 1
-                    continue
-                prev = latest_snapshot(conn, repo_id)
-                if prev is not None and _iso(prev.taken_at) == now_s:
-                    continue  # already enriched at this instant (same repo in two domains of one run)
-                snap = snapshot_from_node(node, now, prev)
-                stamps = (None, None)
-                if repo_id in slow_for:
-                    snap, *stamps = _refresh_slow(client, conn, snap, rows[repo_id]["full_name"], now, cfg)
-                insert_snapshot(conn, snap)
-                mark_slow_metrics(conn, repo_id, *stamps)
-                stats.slow_refreshed += any(stamps)
-                events = []
-                release = _release_event(repo_id, domain_id, snap, prev, node, now)
-                if release:
-                    events.append(release)
-                events += _key_file_events(conn, repo_id, domain_id, node, aliases, texts, now)
-                for event in events:
-                    add_event(conn, event)
-                stats.events += len(events)
-                stats.repos += 1
+                conn.execute("SAVEPOINT enrich_repo")
+                try:
+                    _enrich_one(client, conn, domain_id, repo_id, node, rows[repo_id]["full_name"],
+                                aliases, texts, now, cfg, slow_for, stats)
+                except (RateLimited, ConfigError):  # AuthError is a ConfigError: both must stop the run
+                    conn.execute("ROLLBACK TO enrich_repo")
+                    raise
+                except Exception:
+                    log.exception("enrich: repo %s skipped after an unexpected error", repo_id)
+                    conn.execute("ROLLBACK TO enrich_repo")
+                finally:
+                    conn.execute("RELEASE enrich_repo")
         finally:
             conn.commit()  # keep finished repos even if RateLimited interrupts the batch
     return stats

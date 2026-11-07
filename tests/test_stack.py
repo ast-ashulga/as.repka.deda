@@ -43,3 +43,10 @@ def test_parse_broken_returns_empty(caplog):
         assert parse_deps("pyproject.toml", _text("broken.toml")) == []
         assert parse_deps("package.json", "{not json") == []
     assert "cannot parse" in caplog.text
+
+
+def test_hostile_input_returns_empty_without_raising():
+    deep = "[" * 100_000 + "]" * 100_000
+    assert parse_deps("package.json", deep) == []  # RecursionError inside json
+    assert parse_deps("pyproject.toml", "a = " + deep) == []
+    assert parse_deps("go.mod", "require x v1\n" * 200_000) == []  # over the size cap

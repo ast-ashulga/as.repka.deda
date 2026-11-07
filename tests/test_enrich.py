@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from repka.config import CollectConfig
+from repka.github.client import RateLimited
 from repka.github.enrich import build_enrich_query, enrich_repos, snapshot_from_node
 from repka.models import KeyFile, RepoHit, Snapshot
 from repka.store import repo
@@ -226,3 +227,20 @@ def test_participation_202_stores_null_and_retries_next_time(conn):
     assert len(client.participation_calls) == 2  # retried at the next run
     assert len(client.contributors_calls) == 1  # contributors were fresh
     assert repo.latest_snapshot(conn, 100).active_weeks_12 == 9
+
+
+def test_unexpected_error_skips_repo_but_rate_limit_stops_run(conn):
+    add_repo(conn, 100)
+    add_repo(conn, 300)
+    broken = node(100)
+    del broken["stargazerCount"]  # malformed node: this repo is skipped, the run goes on
+    stats = run(FakeClient(broken, node(300)), conn, [100, 300])
+    assert stats.repos == 1 and repo.latest_snapshot(conn, 100) is None and repo.latest_snapshot(conn, 300)
+
+    class Limited(FakeClient):
+        def contributors_count(self, full_name):
+            raise RateLimited("slow down", None)
+
+    with pytest.raises(RateLimited):
+        run(Limited(node(100)), conn, [100], now=NOW + timedelta(hours=1), slow_for={100})
+    assert repo.latest_snapshot(conn, 100) is None  # the interrupted repo left nothing half-written

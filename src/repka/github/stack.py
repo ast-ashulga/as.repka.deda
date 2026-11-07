@@ -10,6 +10,8 @@ from pathlib import PurePosixPath
 
 log = logging.getLogger(__name__)
 
+MAX_TEXT_CHARS = 1_000_000  # key files come from untrusted repos: refuse to parse anything larger
+
 _REQ_NAME = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 _GO_REQUIRE_LINE = re.compile(r"^\s*(\S+)\s+v\S+")
 
@@ -85,8 +87,11 @@ def parse_deps(path: str, text: str) -> list[str]:
     parser = _PARSERS.get(PurePosixPath(path).name.lower())
     if parser is None:
         return []
+    if len(text) > MAX_TEXT_CHARS:
+        log.warning("cannot parse %s: %d chars exceeds the %d limit", path, len(text), MAX_TEXT_CHARS)
+        return []
     try:
         return sorted(parser(text))
-    except (ValueError, TypeError, AttributeError) as exc:  # TOML/JSON syntax errors, unexpected shapes
+    except Exception as exc:  # hostile input: syntax errors, odd shapes, RecursionError from deep nesting
         log.warning("cannot parse %s: %s", path, exc)
         return []
