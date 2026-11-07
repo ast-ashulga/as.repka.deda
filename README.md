@@ -95,8 +95,10 @@ uv run repka domain plan example-mcp   # the GitHub queries (keywords x language
 
 The `profile` text is what the decider model reads, so it should state what is in scope, what is out of scope
 and give examples. Keep `min_stars` and the languages tight for a first run: a README keyword such as
-"mcp server" matches thousands of repositories, and the first scan stores every hit (bounded by
-`collect.max_repos_per_domain_scan`).
+"mcp server" matches over a thousand repositories per language even for a 5-day window at 50 stars, and the first
+scan stores every hit (bounded by `collect.max_repos_per_domain_scan`, after which the run is `partial` and the next
+run continues). Keyword groups search `description` and `readme` (`name` is dropped for groups with a phrase, because
+GitHub then returns nothing); `in: [name]` with a phrase finds nothing either.
 
 ## Configuration
 
@@ -186,8 +188,8 @@ A stage that fails never stops the digest: a GitHub rate limit or a crashed deci
 (exit 0, the next run continues); exit 1 only when every stage failed, 2 for a configuration error (for example
 `--send` while `notify.enabled` is false). The summary ends with hints explaining why a run did less than expected.
 Two runs never overlap, and every run is a row in `runs` (`repka db stats`). The very first run of a domain can take
-a while (GraphQL enrichment is about 20 s per 50 repos, triage a few repos per second): progress lines on stderr
-show where it is, and an interrupted run resumes.
+a while (measured on an M-series Mac: GraphQL enrichment about 20 s per 50 repos, triage about 2 s per repo, so a
+first scan of 230 repos took 8 minutes): progress lines on stderr show where it is, and an interrupted run resumes.
 
 ## Telegram (digest delivery)
 
