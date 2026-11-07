@@ -154,6 +154,16 @@ def test_no_release_event_for_old_release_on_first_sighting(conn):
     assert [(rid, kind) for rid, kind, _ in events(conn)] == [(300, "release")]  # only the 2-day-old one
 
 
+def test_baseline_scan_emits_no_release_event_for_a_first_sighting(conn):  # P1-T22: silent baseline
+    add_repo(conn, 100)
+    add_repo(conn, 300)
+    repo.insert_snapshot(conn, old_snapshot(300, NOW - timedelta(days=1), tag="v1.1.0"))  # known from another domain
+    client = FakeClient(node(100), node(300))
+    stats = enrich_repos(client, conn, "d1", [100, 300], (), NOW, CFG, set(), baseline=True)
+    assert [(rid, kind) for rid, kind, _ in events(conn)] == [(300, "release")]  # a real new tag still counts
+    assert stats.repos == 2 and repo.latest_snapshot(conn, 100) is not None  # the snapshot itself is written
+
+
 def test_key_file_change_emits_change_and_stack_events(conn):
     add_repo(conn, 100)
     repo.insert_snapshot(conn, old_snapshot(100, NOW - timedelta(days=1), tag="v1.2.0"))  # no release event

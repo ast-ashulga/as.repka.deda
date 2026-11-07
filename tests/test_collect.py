@@ -62,8 +62,10 @@ class Fakes:
             return self._search(conn, domain, now)
         return QueryStats(hits=1), set()
 
-    def enrich_repos(self, client, conn, domain_id, repo_ids, key_files, now, cfg, slow_for):
-        self.enriched.append({"domain": domain_id, "ids": list(repo_ids), "slow_for": set(slow_for), "now": now})
+    def enrich_repos(self, client, conn, domain_id, repo_ids, key_files, now, cfg, slow_for, baseline=False):
+        self.enriched.append(
+            {"domain": domain_id, "ids": list(repo_ids), "slow_for": set(slow_for), "now": now, "baseline": baseline}
+        )
         return EnrichStats(repos=len(repo_ids))
 
 
@@ -108,6 +110,7 @@ def test_interrupted_first_scan_stays_a_silent_baseline(conn, monkeypatch):
     assert repo.get_domain_state(conn, "alpha").last_scan_at == "2026-11-08T09:00:00Z"
     collect_domains(None, conn, [domain()], CFG, NOW + timedelta(hours=13))  # now a real baseline exists
     assert [s["emit_new"] for s in fakes.searches] == [False, False, True]
+    assert [e["baseline"] for e in fakes.enriched] == [True, False]  # silent exactly during the baseline (the interrupted scan never reached enrich)
     assert fakes.searches[2]["window"].start == datetime(2026, 11, 7).date()  # stored last_scan_at - overlap
     assert fakes.searches[0]["per_page"] == CFG.github.per_page
 

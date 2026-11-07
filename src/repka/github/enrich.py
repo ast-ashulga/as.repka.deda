@@ -172,10 +172,18 @@ def _fetch_texts(client: GitHubClient, blob_ids: list[str]) -> dict[str, str | N
 
 
 def _release_event(
-    repo_id: int, domain_id: str, snap: Snapshot, prev: Snapshot | None, node: dict, now: datetime
+    repo_id: int,
+    domain_id: str,
+    snap: Snapshot,
+    prev: Snapshot | None,
+    node: dict,
+    now: datetime,
+    baseline: bool = False,
 ) -> Event | None:
     tag = snap.latest_release_tag
     if tag is None:
+        return None
+    if baseline and prev is None:  # silent baseline scan: a first sighting is not news (P1-T22)
         return None
     if prev is not None:
         if prev.latest_release_tag == tag:
@@ -240,6 +248,7 @@ def _enrich_one(
     cfg: CollectConfig,
     slow_for: set[int],
     stats: EnrichStats,
+    baseline: bool = False,
 ) -> None:
     if not node:  # deleted / private / not a repository: keep history
         mark_repo_gone(conn, repo_id)
@@ -255,7 +264,7 @@ def _enrich_one(
     insert_snapshot(conn, snap)
     mark_slow_metrics(conn, repo_id, *stamps)
     events = []
-    release = _release_event(repo_id, domain_id, snap, prev, node, now)
+    release = _release_event(repo_id, domain_id, snap, prev, node, now, baseline)
     if release:
         events.append(release)
     events += _key_file_events(conn, repo_id, domain_id, node, aliases, texts, now)
@@ -275,8 +284,12 @@ def enrich_repos(
     now: datetime,
     cfg: CollectConfig,
     slow_for: set[int],
+    baseline: bool = False,
 ) -> EnrichStats:
-    """Snapshot `repo_ids` in batches of `cfg.enrich_batch`; slow REST metrics only for `slow_for`."""
+    """Snapshot `repo_ids` in batches of `cfg.enrich_batch`; slow REST metrics only for `slow_for`.
+
+    `baseline=True` (a domain's silent first scan) emits no `release` event for a repo seen for the first time,
+    so releases up to a week old do not flood the first digest; a repo that already has a snapshot still can."""
     stats = EnrichStats()
     query, aliases = build_enrich_query(key_files)
     since = {"since7": _iso(now - timedelta(days=7)), "since30": _iso(now - timedelta(days=30))}
@@ -301,7 +314,7 @@ def enrich_repos(
                 conn.execute("SAVEPOINT enrich_repo")
                 try:
                     _enrich_one(client, conn, domain_id, repo_id, node, rows[repo_id]["full_name"],
-                                aliases, texts, now, cfg, slow_for, stats)
+                                aliases, texts, now, cfg, slow_for, stats, baseline)
                 except (RateLimited, ConfigError):  # AuthError is a ConfigError: both must stop the run
                     conn.execute("ROLLBACK TO enrich_repo")
                     raise

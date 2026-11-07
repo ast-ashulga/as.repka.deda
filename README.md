@@ -79,3 +79,22 @@ uv run repka similar owner/name --domain example-mcp
 
 If Ollama is down, `repka embed` exits 1 with a hint to start it; a missing model exits 2 with the `ollama pull`
 command. `embed.enabled` is false by default and only governs `repka run`.
+
+## Running everything
+
+`repka run` is one full pass for the enabled domains: collect (domains that are due) -> triage (if
+`triage.enabled`) -> embed (if `embed.enabled`) -> digest (always built, delivered only when sending is on).
+
+```bash
+uv run repka run                      # safe default: nothing is sent, the digest is printed as a preview
+uv run repka run --domain example-mcp # only this domain (collected even if not due)
+uv run repka run --json               # machine-readable report on stdout (progress and one summary line on stderr)
+uv run repka run --send               # also deliver the digest (needs notify.enabled: true; or set run.send: true)
+```
+
+A stage that fails never stops the digest: a GitHub rate limit or a crashed decider worker makes the run `partial`
+(exit 0, the next run continues); exit 1 only when every stage failed, 2 for a configuration error (for example
+`--send` while `notify.enabled` is false). The summary ends with hints explaining why a run did less than expected
+(triage disabled, nothing due, preview only). Two runs never overlap, and every run is a row in `runs`
+(`repka db stats`). The very first run of a domain can take a long time (GraphQL enrichment is about 20 s per 50
+repos): progress lines on stderr show where it is, and an interrupted run resumes.

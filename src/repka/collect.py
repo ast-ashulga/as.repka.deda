@@ -134,7 +134,9 @@ def _collect_one(
     )
     targets, accepted = _enrich_targets(conn, d.id)
     say(f"{prefix}   enriching {len(targets)} repos ({len(accepted & set(targets))} accepted get slow metrics)")
-    enrich = enrich_repos(client, conn, d.id, targets, d.key_files, now, cfg.collect, accepted)
+    enrich = enrich_repos(
+        client, conn, d.id, targets, d.key_files, now, cfg.collect, accepted, baseline=not emit_new
+    )
 
     if search.hits >= limit:  # budget used up: some slices may be undone; the cursor lets the next run continue
         _record_partial(conn, d, state)

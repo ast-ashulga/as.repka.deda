@@ -47,6 +47,8 @@ def test_explain_mentions_disabled_triage()
 
 **Acceptance criteria:** a failure in one stage never prevents the digest stage; two concurrent `repka run` never both work; every pass is recorded in `runs`.
 
+**As built (deviations, P1-T22):** (1) `build_boundaries(conn, cfg, domains, *, force=False, progress=None)`: the domain list is needed by the digest and `force` (`--domain`) by collect; the due-domain filter lives in the real collect boundary (it reads the domain states and builds no GitHub client when nothing is due), because `run_pass` has no connection. (2) `Boundaries` has a defaulted `close()` (closes the lazily built client and embedder); `PassReport` has defaulted `domains` and `send` (used by `explain`); `run_pass` takes an optional `progress` callback. (3) Status rules: `partial` also for collect domains reported `partial`/`skipped` (collect reports a rate limit, it does not raise), triage per-item errors / rate-limited README fetches, and a failed digest send; `failed` only when every stage that ran raised an unexpected exception. Triage and embed stop at their first raised exception (a broken worker/Ollama would fail every domain). (4) Output: without `--json` the summary (with `errors:`/`hints:` and, when not sending, the digest preview text) goes to stdout; with `--json` the full report goes to stdout and one summary line to stderr. (5) `--domain` for a disabled domain is a `ConfigError` (as in `collect`). (6) Lock first, then migrate (same as `collect`). (7) The T13 silent-baseline fix: `enrich_repos(..., baseline=True)` suppresses `release` events for first-sighting repos during a domain's first scan (see architecture § 5); no migration of old events.
+
 ---
 
 ### P1-T23: launchd schedule
