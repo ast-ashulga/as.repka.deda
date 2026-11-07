@@ -142,7 +142,7 @@ search:
   languages: [Python, TypeScript, Go, Rust]   # [] = no language qualifier
   exclude: ["minecraft"]                      # -> NOT "minecraft"
   min_stars: 5
-  in: [name, description, readme]
+  in: [name, description, readme]   # `name` is dropped from keyword groups that contain a phrase (GitHub returns 0 hits otherwise)
   fork_policy: exclude         # exclude | include | only
 key_files: [pyproject.toml, package.json, Cargo.toml, go.mod]
 triage:

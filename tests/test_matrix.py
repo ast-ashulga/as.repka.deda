@@ -51,8 +51,17 @@ def test_terms_times_languages():
         ("mcp", "Python"),
         ("mcp", "Go"),
     ]
-    assert qs[0].q.startswith('("model context protocol" OR "mcp server") in:name,description,readme')
+    assert qs[0].q.startswith('("model context protocol" OR "mcp server") in:description,readme')
     assert qs[4].q.startswith("topic:mcp")
+
+
+def test_name_field_is_dropped_only_for_groups_with_phrases():
+    # real GitHub returns 0 hits for ("a b" OR c) in:name,...; single-word groups are fine
+    qs = queries(keywords=(("mcp server", "mcp"), ("mcp", "sdk")), topics=(), languages=("Python",))
+    assert qs[0].q.startswith('("mcp server" OR mcp) in:description,readme ')
+    assert qs[1].q.startswith("(mcp OR sdk) in:name,description,readme ")
+    only_name = queries(keywords=(("mcp server",),), topics=(), languages=("Python",), in_fields=("name",))
+    assert only_name[0].q.startswith('("mcp server") in:name ')
 
 
 def test_no_language_qualifier_when_empty():

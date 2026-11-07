@@ -38,9 +38,17 @@ def _quote(word: str) -> str:
     return f'"{word}"' if " " in word else word
 
 
+def _in_fields(words: tuple[str, ...], spec: SearchSpec) -> tuple[str, ...]:
+    """GitHub returns nothing for a parenthesised group with a quoted phrase when `in:` lists `name`
+    (found in the T25 rehearsal), so `name` is dropped for such groups. Single words keep it."""
+    if any(" " in w for w in words) and len(spec.in_fields) > 1:
+        return tuple(f for f in spec.in_fields if f != "name")
+    return spec.in_fields
+
+
 def _keyword_q(words: tuple[str, ...], spec: SearchSpec, language: str | None) -> str:
     group = "(" + " OR ".join(_quote(w) for w in words) + ")"
-    return " ".join([group, f"in:{','.join(spec.in_fields)}", *_tail(spec, language)])
+    return " ".join([group, f"in:{','.join(_in_fields(words, spec))}", *_tail(spec, language)])
 
 
 def _topic_q(topic: str, spec: SearchSpec, language: str | None) -> str:
