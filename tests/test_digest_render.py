@@ -53,6 +53,14 @@ def test_long_description_truncated_before_escaping():
     assert line.count("&amp;") == 139 and "…" in line and "&amp;…" in line
 
 
+def test_hostile_stack_text_never_exceeds_message_limit():
+    changes = [{"path": "&" * 10_000, "added": ["<" * 10_000] * 20, "removed": ["&" * 10_000]} for _ in range(100)]
+    d = digest(stack_changes=[item("stack", name="o/" + "&" * 5000, changes=changes)])
+    parts = split_messages(render_digest(d))
+    assert parts and all(len(p) <= 4096 for p in parts)
+    assert not re.search(r"&[^;&\s]{0,6}$", parts[-1]) or parts[-1].endswith("…")
+
+
 def test_empty_digest_renders_nothing():
     assert render_digest(Digest("08:30", "2026-11-07", [], [], [])) == []
 

@@ -6,6 +6,7 @@ truncated, then HTML-escaped (in that order, so an entity is never cut in half).
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from repka.digest.build import Digest
@@ -14,6 +15,9 @@ from repka.textutil import html_escape, printable, truncate
 
 DESC_CHARS = 140
 MAX_DEPS_SHOWN = 5
+DEP_CHARS = 60
+PATH_CHARS = 80
+MAX_CHANGES_SHOWN = 3
 
 
 def slot_label(slot: str) -> str:
@@ -38,7 +42,7 @@ def _link(item: DigestItem) -> str:
 
 
 def _names(sign: str, names: list[Any]) -> str:
-    shown = [f"{sign}{_text(n)}" for n in names[:MAX_DEPS_SHOWN]]
+    shown = [f"{sign}{_text(n, DEP_CHARS)}" for n in names[:MAX_DEPS_SHOWN]]
     if len(names) > MAX_DEPS_SHOWN:
         shown.append(f"{sign}…{len(names) - MAX_DEPS_SHOWN}")
     return " ".join(shown)
@@ -79,12 +83,15 @@ def _mover_line(item: DigestItem) -> str:
 
 def _stack_line(item: DigestItem) -> str:
     parts = []
-    for c in item.text_fields.get("changes", []):
-        bits = [_text(c.get("path") or "")]
+    changes = item.text_fields.get("changes", [])
+    for c in changes[:MAX_CHANGES_SHOWN]:
+        bits = [_text(c.get("path") or "", PATH_CHARS)]
         for sign, names in (("+", c.get("added") or []), ("−", c.get("removed") or [])):
             if names:
                 bits.append(_names(sign, names))
         parts.append(" ".join(b for b in bits if b))
+    if len(changes) > MAX_CHANGES_SHOWN:
+        parts.append(f"…{len(changes) - MAX_CHANGES_SHOWN} more files")
     return f"🧩 {_link(item)} {'; '.join(parts)}"
 
 
@@ -104,15 +111,24 @@ def render_digest(d: Digest) -> list[str]:
     return lines
 
 
-def split_messages(lines: list[str], limit: int = 4096) -> list[str]:
-    """Pack lines into messages of at most `limit` characters; a line is never cut.
+def _squash(line: str, limit: int) -> str:
+    plain = re.sub(r"<[^>]*>", "", line)[: max(limit - 1, 0)]
+    plain = re.sub(r"&[^;&\s]{0,6}$", "", plain)  # never leave half an entity
+    return plain + "…"
 
-    (Every rendered line is far shorter than the limit by construction.)
+
+def split_messages(lines: list[str], limit: int = 4096) -> list[str]:
+    """Pack lines into messages of at most `limit` characters.
+
+    Rendered lines are bounded far below the limit; as a last resort a line longer than
+    `limit` loses its tags (so none is left open) and is cut at `limit` with an ellipsis.
     """
     messages: list[str] = []
     current: list[str] = []
     size = 0
     for line in lines:
+        if len(line) > limit:
+            line = _squash(line, limit)
         extra = len(line) + (1 if current else 0)
         if current and size + extra > limit:
             messages.append("\n".join(current).strip("\n"))

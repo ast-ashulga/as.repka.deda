@@ -92,7 +92,7 @@ def test_cap_and_more_counter(conn):
     assert d.consumed_event_ids == [st]
 
 
-def test_mover_threshold_rf4_and_no_repeat_within_24h(conn):
+def test_mover_not_repeated_within_24h(conn):
     t_old = NOW - timedelta(days=2)
     add_repo(conn, 1, stars=500, taken_at=t_old)  # baseline 2 days ago
     add_snapshot(conn, 1, 600, NOW - timedelta(hours=1))  # +100
