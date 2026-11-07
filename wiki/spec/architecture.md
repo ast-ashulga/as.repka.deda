@@ -50,7 +50,7 @@ as.repka.deda/
 │   ├── runlock.py            # RunLock (flock .state/run.lock)
 │   ├── preflight.py          # Finding, check()
 │   ├── models.py             # shared dataclasses (§ 6)
-│   ├── domain/  schema.py  matrix.py  wizard.py
+│   ├── domain/  schema.py  matrix.py  wizard.py  suggest.py
 │   ├── github/  client.py  search.py  enrich.py  stack.py
 │   ├── store/   db.py  repo.py  vectors.py  metrics.py  migrations/NNN_*.sql
 │   ├── triage/  deciders.py  triage.py
@@ -204,7 +204,7 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | Command | Purpose | Task |
 |---|---|---|
 | `repka doctor` | preflight report, numbered to-do list | P1-T24 |
-| `repka domain new [--from-file desc.md]` | interactive wizard → `domains/<id>.yaml` | P1-T07 |
+| `repka domain new [--from-file PATH] [--probe]` | interactive wizard (answers may be piped, one per line) → `domains/<id>.yaml`; `--probe` counts GitHub results per query (network) | P1-T07 |
 | `repka domain list` / `show <id>` / `plan <id> [--json]` | inspect domains and expanded query matrix | P1-T05/T06 |
 | `repka collect [--domain ID] [--dry-run]` | search + enrich due (or given) domains | P1-T13 |
 | `repka triage [--domain ID] [--dry-run] [--limit N]` | run deciders on pending repos | P1-T15 |
