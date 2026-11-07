@@ -55,7 +55,7 @@ as.repka.deda/
 │   ├── store/   db.py  repo.py  vectors.py  metrics.py  migrations/NNN_*.sql
 │   ├── triage/  deciders.py  triage.py
 │   ├── embed/   ollama.py  embed.py
-│   ├── digest/  build.py  render.py  slots.py
+│   ├── digest/  build.py  render.py  slots.py  run.py  cli.py
 │   ├── notify/  mcp_client.py  telegram_user.py  cli.py
 │   ├── logging_setup.py      # stderr + rotating logs/repka.log
 │   ├── collect.py            # due_domains(), collect_domains() (+ collect_cli.py)
@@ -210,7 +210,7 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | `repka triage [--domain ID] [--dry-run] [--limit N]` | run deciders on pending repos | P1-T15 |
 | `repka embed [--domain ID]` | compute missing embeddings | P1-T18 |
 | `repka similar <owner/name> [-k 10]` | nearest repos by embedding (debug aid) | P1-T18 |
-| `repka digest [--slot morning] [--send] [--dry-run]` | build (and optionally send) a digest now | P1-T21 |
+| `repka digest [--slot HH:MM] [--send] [--dry-run]` | preview the pending digest on stdout (default and `--dry-run`: read-only connection, nothing sent or written); when no slot is due, the CLI previews the latest passed slot anyway (stderr note). `--send` needs `notify.enabled: true` (exit 2 otherwise), sends the due slot and records it | P1-T21 |
 | `repka notify login` | one-time interactive Telegram login (`fast-mcp-telegram-setup`; session in `.sessions/telegram.session`) | P1-T20 |
 | `repka notify test "text" [--dry-run]` | send one HTML-escaped message to `notify.chat_id`; refused (exit 2) unless `notify.enabled: true`; `--dry-run` opens no session | P1-T20 |
 | `repka run [--send] [--domain ID]` | one full pass (what launchd calls) | P1-T22 |
