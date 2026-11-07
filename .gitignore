@@ -223,3 +223,12 @@ __marimo__/
 .sessions/
 *.session
 *.session-journal
+
+# repka: local state, logs, decider venvs, Phase 2 scratch
+.state/
+logs/
+deciders/.venv-*/
+.superpowers/
+.env.*
+!.env.example
+!uv.lock
