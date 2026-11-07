@@ -96,7 +96,9 @@ class GitHubClient:
         sleep: Callable[[float], None] = time.sleep,
         cache: EtagCache | None = None,
         token_source: Literal["env", "gh"] = "env",
+        max_server_retries: int | None = None,  # None: retry per SERVER_RETRY_DELAYS; 0: a single attempt
     ) -> None:
+        self._max_server_retries = len(SERVER_RETRY_DELAYS) if max_server_retries is None else max_server_retries
         self._token = token
         self._cfg = cfg
         self._clock = clock
@@ -304,7 +306,7 @@ class GitHubClient:
                 if resp.status_code < 500:
                     return resp
                 failure = f"HTTP {resp.status_code}"
-            if server_retries >= len(SERVER_RETRY_DELAYS):
+            if server_retries >= self._max_server_retries:
                 raise GitHubError(f"{method} {url} failed after {server_retries} retries: {failure}")
             delay = SERVER_RETRY_DELAYS[server_retries]
             server_retries += 1

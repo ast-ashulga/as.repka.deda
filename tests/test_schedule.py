@@ -46,6 +46,19 @@ def test_plist_is_valid_and_has_no_secrets(home):
     assert "TOKEN" not in xml
 
 
+def test_plist_env_has_gh_dir_and_repka_home_but_no_secrets(home, monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("REPKA_HOME", str(home))
+    monkeypatch.setenv("REPKA_GITHUB_TOKEN", "ghp_secret")
+    monkeypatch.setattr(schedule.shutil, "which", lambda name: "/opt/homebrew/bin/gh" if name == "gh" else None)
+    env = plistlib.loads(schedule.plist_xml("/opt/uv/bin/uv", home, env=schedule.launchd_env()).encode())[
+        "EnvironmentVariables"
+    ]
+    assert env["PATH"].split(":")[0] == "/opt/homebrew/bin"
+    assert env["REPKA_HOME"] == str(home)
+    assert set(env) == {"PATH", "REPKA_HOME"}
+
+
 def test_install_writes_plist_and_bootstraps(launchd):
     schedule.install()
     path = schedule.plist_path()

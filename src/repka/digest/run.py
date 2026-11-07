@@ -47,11 +47,13 @@ def _items(digest: Digest) -> Iterable[DigestItem]:
 
 
 def _insert_digest(conn: sqlite3.Connection, slot: str, local_date: str, status: str, count: int, sent_at: str | None):
-    cur = conn.execute(
-        "INSERT INTO digests (slot, local_date, status, item_count, sent_at) VALUES (?, ?, ?, ?, ?)",
+    """Record the slot. Tolerant of a row that already exists (a concurrent run recorded it first): no
+    IntegrityError after a message was delivered; the existing row's id is returned."""
+    conn.execute(
+        "INSERT OR IGNORE INTO digests (slot, local_date, status, item_count, sent_at) VALUES (?, ?, ?, ?, ?)",
         (slot, local_date, status, count, sent_at),
     )
-    return cur.lastrowid
+    return conn.execute("SELECT id FROM digests WHERE slot = ? AND local_date = ?", (slot, local_date)).fetchone()[0]
 
 
 def _record_skipped(conn: sqlite3.Connection, skipped: list[tuple[str, str]]) -> None:

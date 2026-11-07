@@ -3,7 +3,8 @@
 A verdict is keyed by (repo, domain, model, questions_hash) and carries the `input_hash` of the repo metadata
 it was decided on, so changing the questions, the model or the description re-triages a repo, while a star
 count moving does not. A repo without a verdict row is simply pending: a crashed worker, a failed item or a
-rate-limited README fetch never produces an accepted or rejected verdict.
+rate-limited README fetch never produces an accepted or rejected verdict. The stored answers are kept, and each
+triage pass re-applies the current `triage.thresholds` to them (`reclassify`), so a changed threshold needs no new run.
 """
 
 from __future__ import annotations
@@ -128,6 +129,24 @@ def is_accepted(answers: dict[str, dict], thresholds: dict[str, float]) -> bool:
     return True
 
 
+def reclassify(conn: sqlite3.Connection, domain_id: str, model: str, qhash: str, thresholds: dict[str, float]) -> int:
+    """Re-apply the CURRENT thresholds to the stored answers of this model/questions (no model run), so editing
+    `triage.thresholds` takes effect on the next triage pass. Returns how many verdicts flipped."""
+    rows = conn.execute(
+        "SELECT rowid, accepted, answers_json FROM verdicts "
+        "WHERE domain_id = ? AND model = ? AND questions_hash = ? AND answers_json IS NOT NULL",
+        (domain_id, model, qhash),
+    ).fetchall()
+    flipped = 0
+    for r in rows:
+        accepted = int(is_accepted(json.loads(r["answers_json"]), thresholds))
+        if accepted != r["accepted"]:
+            conn.execute("UPDATE verdicts SET accepted = ? WHERE rowid = ?", (accepted, r["rowid"]))
+            flipped += 1
+    conn.commit()
+    return flipped
+
+
 @dataclass
 class TriageStats:
     pending: int = 0
@@ -185,6 +204,7 @@ def triage_domain(
     per-item error, a missing answer or a rate-limited README fetch just leaves that repo pending (RF7, RF9).
     """
     qhash = questions_hash(q)
+    reclassify(conn, domain.id, model, qhash, thresholds)
     pending = pending_repos(conn, domain.id, model, qhash)
     if limit is not None:
         pending = pending[:limit]

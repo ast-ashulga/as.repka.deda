@@ -179,7 +179,8 @@ def test_send_without_tg_credentials_session_or_chat(home):
     assert by_id(preflight.diagnose(AppConfig(), send=True, now=NOW), "send").status == "error"  # notify.enabled is false
 
 
-def test_flags_off_produce_warnings_only(home):
+def test_flags_off_produce_warnings_only(home, monkeypatch):
+    monkeypatch.setattr(preflight.shutil, "which", lambda name: None)  # ollama missing, whatever this machine has
     write_token(home)
     write_domain(home)
     cfg = AppConfig(embed=EmbedConfig(enabled=True))
@@ -240,3 +241,16 @@ def test_run_stops_on_rejected_token_before_any_search(home, monkeypatch, capsys
     monkeypatch.setattr(pipeline, "build_boundaries", lambda *a, **k: pytest.fail("must stop before any search"))
     assert main(["run"]) == 2
     assert "expired, revoked or invalid" in capsys.readouterr().err
+
+
+def test_embed_model_checked_against_ollama_tags(home, monkeypatch):
+    monkeypatch.setattr(preflight.shutil, "which", lambda name: "/usr/bin/ollama")
+    cfg = AppConfig(embed=EmbedConfig(enabled=True, model="nomic-embed-text"))
+
+    def model_check(probe):
+        return by_id(preflight.diagnose(cfg, send=False, auth_probe=probe_returning(), now=NOW, models_probe=probe), "embed-model")
+
+    assert model_check(lambda: ["nomic-embed-text:latest"]).status == "ok"
+    missing = model_check(lambda: ["llama3:8b"])
+    assert missing.status == "warn" and "ollama pull nomic-embed-text" in missing.fix
+    assert model_check(probe_raising(httpx.ConnectError("down"))).status == "warn"

@@ -27,7 +27,8 @@ uv sync
 uv run repka doctor                  # lists everything that is missing, each with the exact fix
 ```
 
-Follow `doctor`'s numbered list until it says all good, then:
+`doctor` reports an error until a domain exists ("no enabled domain"). Fix everything else in its list first, then create
+a domain (below) and run `doctor` again until it says all good:
 
 ```bash
 uv run repka domain new              # 1. describe a domain; writes domains/<id>.yaml (nothing is enabled unless you say y)
@@ -222,7 +223,7 @@ uv run repka schedule status
 uv run repka schedule uninstall
 ```
 
-The plist holds no secrets; logs go to `logs/launchd.log`.
+The plist holds no secrets: only `PATH` (so launchd can find `gh`; launchd's default PATH lacks `/opt/homebrew/bin`) and, when set at install time, `REPKA_HOME`. Re-run `schedule install` after moving `gh`/`uv` or changing `REPKA_HOME`. Logs go to `logs/launchd.log`.
 
 ## Troubleshooting
 
@@ -240,5 +241,11 @@ Start with `uv run repka doctor` and the `hints:` at the end of `uv run repka ru
 | Digest not delivered | Needs `notify.enabled: true` and `run.send: true` (or `--send`), plus `repka notify login`. `repka doctor --send` lists what is missing. A failed send keeps its slot open for the next run. |
 | "another repka run is in progress" | A previous run (or launchd) holds `.state/run.lock`; nothing is done and the exit code is 0. |
 | Where are the logs? | `logs/repka.log` (rotating), `logs/launchd.log` for scheduled runs, `repka -v ...` prints DEBUG on stderr. |
+
+## Known limitations
+
+- The "top movers" digest label (`/24h`) can be based on an older baseline snapshot than 24 hours when snapshots are sparse.
+- Events that stay pending (not yet sent) have no age limit: after a long pause the first digest can contain old events.
+- If a digest is split into several Telegram messages and a later one fails after an earlier one was delivered, the slot counts as sent and the items of the failed messages are not retried.
 
 Agent and developer notes are in [CLAUDE.md](CLAUDE.md); the plan and task status are in [wiki/](wiki/README.md).

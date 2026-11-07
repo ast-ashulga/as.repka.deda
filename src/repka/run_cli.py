@@ -10,7 +10,7 @@ import time
 from datetime import UTC, datetime
 
 from repka import pipeline, preflight
-from repka.collect_cli import _line
+from repka.collect_cli import domain_line
 from repka.config import ConfigError, domains_dir, load_config, state_dir
 from repka.domain.schema import Domain, get_domain, load_domains
 from repka.pipeline import PassReport
@@ -62,7 +62,7 @@ def _digest_line(report: PassReport) -> str:
 def _text(run_id: int, report: PassReport, hints: list[str], seconds: float) -> str:
     lines = [f"run #{run_id}: {report.status} in {seconds:.0f}s"]
     if report.collect is not None:
-        lines += [f"collect  {_line(r)}" for r in report.collect.domains] or ["collect  nothing due"]
+        lines += [f"collect  {domain_line(r)}" for r in report.collect.domains] or ["collect  nothing due"]
     lines += [
         f"triage   {d}: pending {s.pending}, decided {s.decided}, accepted {s.accepted}, errors {s.errors}"
         for d, s in report.triage.items()
@@ -80,7 +80,12 @@ def _text(run_id: int, report: PassReport, hints: list[str], seconds: float) -> 
 
 def _run(args: argparse.Namespace) -> int:
     cfg = load_config()
-    send = cfg.run.send or args.send
+    if args.send and args.domain:
+        raise ConfigError(
+            "--send cannot be combined with --domain: a digest consumes the slot for ALL domains, "
+            "so it must cover them all. Drop --domain to send, or drop --send to preview this domain"
+        )
+    send = (cfg.run.send and not args.domain) or args.send  # a single-domain run is preview-only
     if send and not cfg.notify.enabled:
         raise ConfigError(
             "sending is requested (run.send or --send) but notify.enabled is false: "
@@ -149,6 +154,6 @@ def register(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     run.add_argument("--send", action="store_true", help="deliver the digest to Telegram (same as run.send: true)")
-    run.add_argument("--domain", metavar="ID", help="only this domain, collected even if it is not due")
+    run.add_argument("--domain", metavar="ID", help="only this domain, collected even if it is not due (preview only: no --send)")
     run.add_argument("--json", action="store_true", help="print the report as JSON on stdout (summary line on stderr)")
     run.set_defaults(func=_run)

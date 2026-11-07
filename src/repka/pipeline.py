@@ -25,7 +25,7 @@ from repka.domain.schema import Domain
 from repka.embed import cli as embed_cli
 from repka.embed.embed import EmbedStats, embed_domain
 from repka.embed.ollama import EmbedderUnavailable
-from repka.github.client import GitHubClient, RateLimited
+from repka.github.client import AuthError, GitHubClient, RateLimited
 from repka.store import repo
 from repka.textutil import printable
 from repka.triage import cli as triage_cli
@@ -79,16 +79,35 @@ def run_pass(
     attempted = unexpected = 0
     problems = 0  # anything that makes the pass less than complete
 
-    def fail(stage: str, exc: Exception) -> None:
-        nonlocal unexpected, problems
+    def fail(stage: str, exc: Exception) -> bool:
+        """Record a stage error; True when it is an expected one (known, recoverable)."""
+        nonlocal problems
         problems += 1
         known = isinstance(exc, EXPECTED)
-        unexpected += not known
         if known:
             log.warning("%s stage stopped: %s", stage, exc)
         else:
             log.exception("%s stage failed", stage)
         report.errors.append(_err(stage, exc))
+        return known
+
+    def per_domain(stage: str, work: Callable[[Domain], None]) -> None:
+        """Run `work` for each enabled domain. One domain's failure never skips the others, except a backend-level
+        one (crashed worker, Ollama down, rejected GitHub token) that the next domain would hit too: that ends the stage."""
+        nonlocal attempted, unexpected
+        attempted += 1
+        raised_unexpected = succeeded = 0
+        for d in enabled:
+            try:
+                work(d)
+            except Exception as exc:
+                known = fail(f"{stage} {d.id}", exc)
+                raised_unexpected += not known
+                if isinstance(exc, (WorkerError, EmbedderUnavailable, AuthError)):
+                    break
+            else:
+                succeeded += 1
+        unexpected += bool(raised_unexpected) and not succeeded
 
     if enabled:
         attempted += 1
@@ -101,33 +120,29 @@ def run_pass(
                     detail = f": {printable(r.error)}" if r.error else ""
                     report.errors.append(f"collect {r.domain_id}: {r.status}{detail}")
         except Exception as exc:
-            fail("collect", exc)
+            unexpected += not fail("collect", exc)
+
+    def triage_one(d: Domain) -> None:
+        nonlocal problems
+        say(f"triage: {d.id}")
+        stats = report.triage[d.id] = b.triage(d, now)
+        say(f"triage: {d.id}: decided {stats.decided}, accepted {stats.accepted}, pending {stats.pending}")
+        if stats.rate_limited:
+            problems += 1
+            report.errors.append(f"triage {d.id}: GitHub rate limit hit while fetching READMEs; repos stay pending")
+        if stats.errors:
+            problems += 1
+            report.errors.append(f"triage {d.id}: {stats.errors} repo(s) stay pending after an error")
+
+    def embed_one(d: Domain) -> None:
+        say(f"embed: {d.id}")
+        stats = report.embed[d.id] = b.embed(d, now)
+        say(f"embed: {d.id}: embedded {stats.embedded} of {stats.pending}")
 
     if enabled and cfg.triage.enabled:
-        attempted += 1
-        try:
-            for d in enabled:
-                say(f"triage: {d.id}")
-                stats = report.triage[d.id] = b.triage(d, now)
-                say(f"triage: {d.id}: decided {stats.decided}, accepted {stats.accepted}, pending {stats.pending}")
-                if stats.rate_limited:
-                    problems += 1
-                    report.errors.append(f"triage {d.id}: GitHub rate limit hit while fetching READMEs; repos stay pending")
-                if stats.errors:
-                    problems += 1
-                    report.errors.append(f"triage {d.id}: {stats.errors} repo(s) stay pending after an error")
-        except Exception as exc:
-            fail("triage", exc)
-
+        per_domain("triage", triage_one)
     if enabled and cfg.embed.enabled:
-        attempted += 1
-        try:
-            for d in enabled:
-                say(f"embed: {d.id}")
-                stats = report.embed[d.id] = b.embed(d, now)
-                say(f"embed: {d.id}: embedded {stats.embedded} of {stats.pending}")
-        except Exception as exc:
-            fail("embed", exc)
+        per_domain("embed", embed_one)
 
     attempted += 1
     say("digest: " + ("building and sending" if send else "building a preview (not sent)"))
@@ -140,7 +155,7 @@ def run_pass(
             problems += 1
             report.errors.append(f"digest: {printable(report.digest.error)}")
     except Exception as exc:
-        fail("digest", exc)
+        unexpected += not fail("digest", exc)
 
     if unexpected == attempted:
         report.status = "failed"
@@ -212,14 +227,14 @@ def build_boundaries(
                 say(f"collect: {d.id} not due" + (f" until {iso(at)}" if at else ""))
         if not due:
             return CollectReport()
-        return collect_domains(client(), conn, due, cfg, now, progress=say)
+        return collect_domains(client(), conn, due, cfg, now, progress=say, all_domains=domains)
 
     def triage_stage(d: Domain, now: datetime) -> TriageStats:
         if "backend" not in held:
             models = deciders.load_models(config.project_root() / cfg.triage.deciders_dir / "models.yaml")
             held["backend"] = deciders.make_backend(cfg.triage, models)  # ConfigError for a bad/remote model
         if d.id not in questions:
-            questions.update(triage_cli._question_sets(cfg, [d]))  # also validates the thresholds
+            questions.update(triage_cli.question_sets(cfg, [d]))  # also validates the thresholds
         return triage.triage_domain(
             conn, d, held["backend"], questions[d.id], cfg.triage.model, cfg.triage.thresholds,
             lambda full_name: client().readme(full_name), cfg.triage.readme_chars, iso(now),

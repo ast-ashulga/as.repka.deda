@@ -92,6 +92,22 @@ def test_worker_error_is_partial_and_continues():  # RF7
     assert "worker timed out" in report.errors[0]
 
 
+def test_unexpected_error_in_one_domain_does_not_skip_the_others():
+    calls = []
+
+    def triage(d, now):
+        calls.append(d.id)
+        if d.id == "a":
+            raise KeyError("boom")
+        return TriageStats()
+
+    boundaries = Fakes().boundaries()
+    boundaries.triage = triage
+    report = run_pass([domain("a"), domain("b")], ON, boundaries, NOW, send=False)
+    assert calls == ["a", "b"] and report.status == "partial" and "triage a:" in report.errors[0]
+    assert list(report.triage) == ["b"]
+
+
 def test_embedder_unavailable_is_partial():
     fakes = Fakes(embed=EmbedderUnavailable("Ollama is not running"))
     report = run_pass([domain()], ON, fakes.boundaries(), NOW, send=False)
@@ -211,3 +227,9 @@ def test_domain_filter_limits_all_stages(home, monkeypatch, capsys):
     assert main(["run", "--domain", "nope"]) == 2
     write_domain(home, "off", enabled="false")
     assert main(["run", "--domain", "off"]) == 2
+
+
+def test_send_with_domain_is_refused(home, capsys):
+    write_domain(home)
+    assert main(["run", "--domain", "alpha", "--send"]) == 2
+    assert "--send cannot be combined with --domain" in capsys.readouterr().err

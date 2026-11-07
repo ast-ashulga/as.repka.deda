@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -62,8 +62,13 @@ def _error(id: str, title: str, fix: str) -> Result:
 
 
 def live_auth_probe(cfg: AppConfig) -> AuthInfo:
-    """The one real network call: GET /user with the configured token."""
-    client = GitHubClient(config.github_token(), cfg.github, token_source=config.github_token_source())
+    """The one real network call: GET /user with the configured token. One short attempt: offline must fail fast."""
+    client = GitHubClient(
+        config.github_token(),
+        replace(cfg.github, timeout_s=5),
+        token_source=config.github_token_source(),
+        max_server_retries=0,
+    )
     try:
         return client.check_auth()
     finally:
@@ -196,12 +201,34 @@ def _triage(cfg: AppConfig, domains: list[Domain] | ConfigError) -> list[Result]
 # --- embeddings and sending -------------------------------------------------------------------------
 
 
-def _embed(cfg: AppConfig) -> list[Result]:
+def live_models_probe(cfg: AppConfig) -> list[str]:
+    """Names of the models pulled into Ollama (`GET /api/tags`, short timeout)."""
+    resp = httpx.get(cfg.embed.url.rstrip("/") + "/api/tags", timeout=3.0)
+    resp.raise_for_status()
+    return [str(m["name"]) for m in resp.json().get("models", [])]
+
+
+def _has_model(names: list[str], model: str) -> bool:
+    return any(n == model or (":" not in model and n == f"{model}:latest") for n in names)
+
+
+def _embed(cfg: AppConfig, models_probe: Callable[[], list[str]] | None) -> list[Result]:
     if not cfg.embed.enabled:
         return []
+    pull = f"ollama pull {cfg.embed.model}"
     if shutil.which("ollama") is None:
-        return [_warn("embed-ollama", "the ollama binary is not on PATH", "install Ollama from https://ollama.com, then `ollama pull " + cfg.embed.model + "`")]
-    return [_ok("embed-ollama", "ollama binary found (reachability is checked at run time)")]
+        return [_warn("embed-ollama", "the ollama binary is not on PATH", f"install Ollama from https://ollama.com, then `{pull}`")]
+    results = [_ok("embed-ollama", "ollama binary found")]
+    try:
+        names = (models_probe or (lambda: live_models_probe(cfg)))()
+    except (httpx.HTTPError, OSError, ValueError, KeyError, TypeError):
+        results.append(_warn("embed-model", f"Ollama is not reachable at {cfg.embed.url}", "start it with `ollama serve`"))
+    else:
+        if _has_model(names, cfg.embed.model):
+            results.append(_ok("embed-model", f"embedding model {cfg.embed.model} is pulled"))
+        else:
+            results.append(_warn("embed-model", f"embedding model {cfg.embed.model} is not pulled", f"`{pull}`"))
+    return results
 
 
 def _send(cfg: AppConfig, send: bool) -> list[Result]:
@@ -245,6 +272,7 @@ def diagnose(
     send: bool,
     auth_probe: Callable[[], AuthInfo] | None = None,
     now: datetime | None = None,
+    models_probe: Callable[[], list[str]] | None = None,
 ) -> list[Result]:
     """Every check, in a fixed order, ok ones included (what `repka doctor` prints)."""
     now = now or datetime.now(UTC)
@@ -256,7 +284,7 @@ def diagnose(
         *_github(cfg, auth_probe, now),
         *_domains(domains),
         *_triage(cfg, domains),
-        *_embed(cfg),
+        *_embed(cfg, models_probe),
         *_send(cfg, send),
     ]
 

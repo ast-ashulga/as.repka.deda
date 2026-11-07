@@ -251,3 +251,14 @@ def test_triage_cli_run_prints_table_and_json(cli_home, monkeypatch, capsys):
     assert main(["triage", "--domain", "example-mcp", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["domains"][0]["pending"] == 0  # idempotent
+
+
+def test_changed_thresholds_reclassify_stored_verdicts_without_a_model_run(conn):
+    add_repo(conn, 1)
+    backend = FakeBackend(answers={1: answer(p=0.8)})
+    run(conn, backend)
+    assert [v["accepted"] for v in verdicts(conn)] == [1]
+    stricter = {"relevant": 0.95, "substance": 2.0}
+    stats = triage_domain(conn, DOMAIN, backend, questions(), "m", stricter, lambda n: "r", 4000, NOW)
+    assert [v["accepted"] for v in verdicts(conn)] == [0]
+    assert stats.pending == 0 and len(backend.calls) == 1  # no second model run

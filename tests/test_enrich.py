@@ -254,3 +254,17 @@ def test_unexpected_error_skips_repo_but_rate_limit_stops_run(conn):
     with pytest.raises(RateLimited):
         run(Limited(node(100)), conn, [100], now=NOW + timedelta(hours=1), slow_for={100})
     assert repo.latest_snapshot(conn, 100) is None  # the interrupted repo left nothing half-written
+
+
+def test_events_go_to_every_domain_sharing_the_repo(conn):
+    add_repo(conn, 100)
+    for d in ("d1", "d2"):
+        repo.link_domain_repo(conn, d, 100, "q", "2026-11-01T00:00:00Z")
+    repo.insert_snapshot(conn, old_snapshot(100, NOW - timedelta(days=1), tag="v1.1.0"))
+    repo.insert_key_file(conn, KeyFile(100, "pyproject.toml", "oid-old", None), ["httpx"], "2026-11-01T00:00:00Z")
+    enrich_repos(FakeClient(node(100)), conn, "d1", [100], KEY_FILES, NOW, CFG, set(),
+                 key_files_by_domain={"d1": KEY_FILES, "d2": ["go.mod"]})  # fmt: skip
+    got = conn.execute("SELECT domain_id, kind FROM events ORDER BY id").fetchall()
+    assert {(r["domain_id"], r["kind"]) for r in got} == {
+        ("d1", "release"), ("d2", "release"), ("d1", "key_file_changed"), ("d1", "stack_changed"),
+    }  # d2 does not track pyproject.toml

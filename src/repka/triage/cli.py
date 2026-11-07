@@ -11,6 +11,7 @@ from repka import config
 from repka.config import AppConfig, ConfigError, load_config
 from repka.domain.schema import Domain, get_domain, load_domains
 from repka.github.client import GitHubClient
+from repka.runlock import run_exclusive
 from repka.store.db import connect, utcnow
 from repka.store.repo import SqliteEtagCache
 from repka.textutil import printable
@@ -42,7 +43,7 @@ def _select_domains(domain_id: str | None) -> list[Domain]:
     return [d for d in load_domains() if d.enabled]
 
 
-def _question_sets(cfg: AppConfig, domains: list[Domain]) -> dict[str, QuestionSet]:
+def question_sets(cfg: AppConfig, domains: list[Domain]) -> dict[str, QuestionSet]:
     """Per-domain question sets; thresholds are checked against each before any README or model is touched."""
     base = deciders.load_questions(config.project_root() / cfg.triage.deciders_dir / "questions.yaml")
     sets: dict[str, QuestionSet] = {}
@@ -99,12 +100,16 @@ def _dry_run(conn: sqlite3.Connection, cfg: AppConfig, domains: list[Domain], se
 
 
 def _cmd_triage(args: argparse.Namespace) -> int:
+    return run_exclusive(lambda: _triage(args), enabled=not args.dry_run)
+
+
+def _triage(args: argparse.Namespace) -> int:
     cfg = load_config()
     domains = _select_domains(args.domain)
     if not domains:
         print("no enabled domains: nothing to triage (see: repka domain list)", file=sys.stderr)
         return 0
-    sets = _question_sets(cfg, domains)
+    sets = question_sets(cfg, domains)
     if not cfg.triage.enabled:
         print(
             "note: triage.enabled is false in .config.yaml; that flag only governs `repka run`. "

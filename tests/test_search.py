@@ -220,7 +220,7 @@ def test_collect_search_sums_queries_within_max_repos(conn):
     domain = load_domain(REPO / "domains" / "example-mcp.yaml")
     n = len(build_queries(domain))
     stats, seen = collect_search(FakeSearchClient(lambda days: 2), conn, domain, window(1), NOW, 10_000, False)
-    assert stats.slices == n and stats.hits == 2 * n and len(seen) == 2
+    assert stats.slices == n and stats.hits == 2 and len(seen) == 2  # the same 2 repos through every query: counted once
     other = replace(domain, id="d2")
-    capped, _ = collect_search(FakeSearchClient(lambda days: 2), conn, other, window(1), NOW, 3, False)
-    assert (capped.hits, capped.slices) == (3, 1)  # 2 from the first query, 1 left for the second
+    capped, _ = collect_search(FakeSearchClient(lambda days: 2), conn, other, window(1), NOW, 2, False)
+    assert (capped.hits, capped.slices) == (2, 1)  # the budget is used up by the first query

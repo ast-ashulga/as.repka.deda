@@ -5,6 +5,10 @@ Scan state, in one place:
   (rate limit, error, `max_repos_per_domain_scan` reached) records the status and leaves `last_scan_at`
   alone, so "last_scan_at is set" means "a complete baseline exists". An interrupted first scan therefore
   stays a silent baseline (RF8) until one scan completes.
+- An unfinished scan keeps its window (stored with the cursor rows) until it completes: slice keys contain the
+  window's dates, so a scan needing more than one UTC day could never finish if the window moved daily.
+  A scan that finished on a stored window older than today records that window's end as `last_scan_at`, so
+  the next window starts early enough to cover the days that passed meanwhile.
 - `search_cursor` rows exist only for an unfinished scan: they let the next run skip finished slices (RF1)
   and are deleted when a scan completes, so a rerun on the same day really searches again.
 """
@@ -15,11 +19,11 @@ import logging
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from typing import Literal
 
 from repka.config import AppConfig
-from repka.domain.matrix import Query, build_queries, scan_window
+from repka.domain.matrix import Query, Window, build_queries, scan_window
 from repka.domain.schema import Domain, profile_hash
 from repka.github.client import GitHubClient, GitHubError, RateLimited
 from repka.github.enrich import EnrichStats, enrich_repos
@@ -111,9 +115,18 @@ def _collect_one(
     say: Progress,
     prefix: str,
     search_total: QueryStats,
+    key_files_by_domain: dict[str, tuple[str, ...]],
 ) -> DomainReport:
     state = repo.get_domain_state(conn, d.id)
-    window = scan_window(parse_iso(state.last_scan_at), now, cfg.collect)
+    saved = repo.saved_window(conn, d.id)
+    if saved:  # resuming an unfinished scan: same window, so its finished slices still match
+        field_, dates = saved.split(":")
+        start, end = (date.fromisoformat(x) for x in dates.split(".."))
+        window = Window(field_, start, end)  # type: ignore[arg-type]
+    else:
+        window = scan_window(parse_iso(state.last_scan_at), now, cfg.collect)
+        repo.save_window(conn, d.id, f"{window.field}:{window.start}..{window.end}", iso(now))
+        conn.commit()
     emit_new = state.last_scan_at is not None  # first scan (no complete baseline yet) is silent
     queries = build_queries(d)
     say(
@@ -137,6 +150,7 @@ def _collect_one(
     enrich = enrich_repos(
         client, conn, d.id, targets, d.key_files, now, cfg.collect, accepted, baseline=not emit_new,
         progress=lambda done, total: say(f"{prefix}   enriched {done}/{total}"),
+        key_files_by_domain=key_files_by_domain,
     )
 
     if search.hits >= limit:  # budget used up: some slices may be undone; the cursor lets the next run continue
@@ -148,7 +162,8 @@ def _collect_one(
             enrich,
             f"reached collect.max_repos_per_domain_scan ({limit}); run again to continue where it stopped",
         )
-    repo.set_domain_scanned(conn, d.id, iso(now), "ok", profile_hash(d), int(d.scan_every.total_seconds()))
+    scanned_at = iso(now) if window.end >= now.date() else iso(datetime.combine(window.end, time.min, UTC))
+    repo.set_domain_scanned(conn, d.id, scanned_at, "ok", profile_hash(d), int(d.scan_every.total_seconds()))
     repo.clear_cursors(conn, d.id)
     conn.commit()
     return DomainReport(d.id, "ok", search, enrich)
@@ -170,15 +185,19 @@ def collect_domains(
     now: datetime,
     *,
     progress: Progress | None = None,
+    all_domains: list[Domain] | None = None,
 ) -> CollectReport:
     """Search then enrich each domain (the caller decides which are due), using ONE `now` for the run.
 
     `RateLimited` marks the domain `partial`, the rest `skipped`, and returns normally (RF1: data kept).
-    Any other `GitHubError` marks the domain `partial` and propagates. `AuthError` propagates untouched.
+    Any other `GitHubError` marks that domain `partial` (error recorded) and the next domain still runs.
+    `AuthError` propagates untouched. `all_domains` (default: `domains`) tells enrichment which domains track which
+    key files, since a repo can be shared with a domain that is not due.
     """
     say = progress or (lambda message: None)
     now = now.astimezone(UTC).replace(microsecond=0)
     report = CollectReport()
+    key_files_by_domain = {d.id: tuple(d.key_files) for d in all_domains or domains}  # not just the due ones
     for index, d in enumerate(domains, 1):
         if report.rate_limited:
             report.domains.append(DomainReport(d.id, "skipped", error="skipped: GitHub rate limit reached earlier"))
@@ -186,15 +205,16 @@ def collect_domains(
             continue
         search_so_far = QueryStats()  # a rate limit interrupts a query; keep what earlier queries found
         try:
-            domain_report = _collect_one(client, conn, d, cfg, now, say, f"[{index}/{len(domains)}]", search_so_far)
+            domain_report = _collect_one(client, conn, d, cfg, now, say, f"[{index}/{len(domains)}]", search_so_far, key_files_by_domain)
         except RateLimited as exc:
             _record_partial(conn, d, repo.get_domain_state(conn, d.id))
             report.rate_limited = True
             report.retry_at = exc.retry_at
             domain_report = DomainReport(d.id, "partial", search_so_far, error=_rate_limit_message(exc))
             log.warning("%s: %s", d.id, domain_report.error)
-        except GitHubError:
+        except GitHubError as exc:  # this domain only: partial, the other domains still run (AuthError aborts)
             _record_partial(conn, d, repo.get_domain_state(conn, d.id))
-            raise
+            domain_report = DomainReport(d.id, "partial", search_so_far, error=f"GitHub error: {exc}")
+            log.warning("%s: %s", d.id, domain_report.error)
         report.domains.append(domain_report)
     return report

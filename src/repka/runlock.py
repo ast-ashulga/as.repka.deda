@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import fcntl
+import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import IO
 
@@ -33,3 +35,18 @@ class RunLock:
         if self._file is not None:
             self._file.close()  # closing releases the lock
             self._file = None
+
+
+def run_exclusive(fn: Callable[[], int], *, enabled: bool = True) -> int:
+    """Run a state-writing command under the shared run lock; a busy lock is a friendly exit 0 (like `collect`).
+    `enabled=False` (a read-only mode, e.g. --dry-run) runs `fn` without the lock."""
+    if not enabled:
+        return fn()
+    from repka.config import state_dir
+
+    try:
+        with RunLock(state_dir() / "run.lock"):
+            return fn()
+    except LockBusy as exc:
+        print(f"another repka run is in progress ({exc}); nothing done", file=sys.stderr)
+        return 0

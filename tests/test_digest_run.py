@@ -146,3 +146,17 @@ def test_default_cli_previews_to_stdout_without_sending(home, monkeypatch, capsy
     check = make_db(home / ".state" / "repka.db")
     assert check.execute("SELECT COUNT(*) FROM digests").fetchone()[0] == 0
     check.close()
+
+
+def test_recording_a_slot_that_already_exists_does_not_raise(conn):  # a concurrent run recorded it first
+    seed_accepted(conn)
+    conn.execute("INSERT INTO digests (slot, local_date, status, item_count) VALUES ('19:30', ?, 'sent', 1)", (DUE[1],))
+    conn.commit()
+    out = run(conn, FakeSender(), slot="19:30")  # the recorded slot is not due again
+    assert out.status == "not_due"
+    from repka.digest.run import _record_sent
+    from repka.digest.build import build_digest
+
+    digest = build_digest(conn, [DOMAIN], NOW, CFG.digest, *DUE)
+    _record_sent(conn, digest, NOW)  # IntegrityError before the fix
+    assert conn.execute("SELECT COUNT(*) FROM digests WHERE slot = '19:30'").fetchone()[0] == 1

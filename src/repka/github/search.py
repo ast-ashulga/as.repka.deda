@@ -102,6 +102,7 @@ class _Collector:
         budget: int,
         emit_new: bool,
         per_page: int,
+        seen: set[int],
     ) -> None:
         self.client = client
         self.conn = conn
@@ -113,7 +114,7 @@ class _Collector:
         self.per_page = per_page
         self.max_pages = ceil(SEARCH_RESULT_CAP / per_page)
         self.stats = QueryStats()
-        self.seen: set[int] = set()
+        self.seen = seen  # shared by the queries of one domain scan: the budget counts unique repos
 
     def _search(self, q: str, page: int, per_page: int) -> SearchPage:
         self.stats.pages += 1
@@ -136,10 +137,16 @@ class _Collector:
                 break
         return items
 
-    def _store(self, items: list[dict]) -> None:
+    def _store(self, items: list[dict]) -> bool:
+        """Store the items. False when an unseen repo did not fit the budget (repos already seen cost nothing)."""
+        fits = True
         for item in items:
             hit = hit_from_item(item)
-            self.stats.hits += 1
+            fresh = hit.repo_id not in self.seen
+            if fresh and self.stats.hits >= self.budget:
+                fits = False
+                break
+            self.stats.hits += fresh
             self.stats.new += repo.upsert_repo(self.conn, hit, self.now)
             first_in_domain = not repo.domain_has_repo(self.conn, self.domain_id, hit.repo_id)
             repo.link_domain_repo(self.conn, self.domain_id, hit.repo_id, self.query.key, self.now)
@@ -156,6 +163,7 @@ class _Collector:
                 )
             self.seen.add(hit.repo_id)
         self.conn.commit()
+        return fits
 
     def slice(self, sl: Slice) -> bool:
         """Collect one slice (bisecting if needed). True when it is fully done, False if the budget ran out."""
@@ -181,10 +189,9 @@ class _Collector:
         page = 1
         while True:
             items = self._page(q, page, first if page == 1 else None)
-            room = self.budget - self.stats.hits
-            self._store(items[:room])
+            fits = self._store(items)
             last = len(items) < self.per_page or page >= self.max_pages
-            if len(items) > room or (len(items) == room and not last):
+            if not fits or (self.stats.hits >= self.budget and not last):
                 return False  # the budget ended inside this slice
             if last:
                 break
@@ -206,13 +213,14 @@ def collect_query(
     emit_new: bool,
     *,
     per_page: int = 100,
+    seen: set[int] | None = None,
 ) -> tuple[QueryStats, set[int]]:
     """Collect one query over the window. Returns the stats and the repo ids seen.
 
-    `budget` is the number of hits still allowed for the domain scan. `emit_new=False` is the silent
+    `budget` is the number of unique repos still allowed for the domain scan (`seen` holds those already counted). `emit_new=False` is the silent
     baseline of a domain's first scan (RF8). `RateLimited` propagates; finished pages are committed.
     """
-    collector = _Collector(client, conn, domain_id, query, now, budget, emit_new, per_page)
+    collector = _Collector(client, conn, domain_id, query, now, budget, emit_new, per_page, set() if seen is None else seen)
     collector.slice(Slice(window.field, window.start, window.end))
     return collector.stats, collector.seen
 
@@ -229,7 +237,7 @@ def collect_search(
     per_page: int = 100,
     progress: Callable[[int, int, Query, QueryStats], None] | None = None,
 ) -> tuple[QueryStats, set[int]]:
-    """Collect every query of the domain's matrix, summed, within a total budget of `max_repos` hits.
+    """Collect every query of the domain's matrix, summed, within a total budget of `max_repos` unique repos.
 
     `progress(index, count, query, stats)` is called after each finished query (1-based index).
     """
@@ -240,9 +248,8 @@ def collect_search(
         left = max_repos - total.hits
         if left <= 0:
             break
-        stats, ids = collect_query(client, conn, domain.id, query, window, now, left, emit_new, per_page=per_page)
+        stats, _ = collect_query(client, conn, domain.id, query, window, now, left, emit_new, per_page=per_page, seen=seen)
         total.add(stats)
-        seen |= ids
         if progress is not None:
             progress(index, len(queries), query, stats)
     return total, seen

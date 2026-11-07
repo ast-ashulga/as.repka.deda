@@ -1,3 +1,4 @@
+from dataclasses import replace
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -9,7 +10,7 @@ from repka.cli import main
 from repka.collect import collect_domains, due_domains
 from repka.config import AppConfig
 from repka.domain.schema import Domain, SearchSpec
-from repka.github.client import RateLimited
+from repka.github.client import GitHubError, RateLimited
 from repka.github.enrich import EnrichStats
 from repka.github.search import QueryStats
 from repka.models import RepoHit
@@ -62,9 +63,9 @@ class Fakes:
             return self._search(conn, domain, now)
         return QueryStats(hits=1), set()
 
-    def enrich_repos(self, client, conn, domain_id, repo_ids, key_files, now, cfg, slow_for, baseline=False, progress=None):
+    def enrich_repos(self, client, conn, domain_id, repo_ids, key_files, now, cfg, slow_for, baseline=False, progress=None, **kw):
         self.enriched.append(
-            {"domain": domain_id, "ids": list(repo_ids), "slow_for": set(slow_for), "now": now, "baseline": baseline}
+            {"domain": domain_id, "key_files_by_domain": kw.get("key_files_by_domain"), "ids": list(repo_ids), "slow_for": set(slow_for), "now": now, "baseline": baseline}
         )
         return EnrichStats(repos=len(repo_ids))
 
@@ -93,6 +94,25 @@ def test_rate_limit_stops_remaining_domains_and_marks_partial(conn, monkeypatch)
     assert repo.get_domain_state(conn, "a").last_scan_status == "partial"
 
 
+def test_github_error_in_one_domain_does_not_skip_the_others(conn, monkeypatch):
+    def search(conn, d, now):
+        if d.id == "a":
+            raise GitHubError("HTTP 502")
+        return QueryStats(hits=1), set()
+
+    Fakes(monkeypatch, search=search)
+    report = collect_domains(None, conn, [domain("a"), domain("b")], CFG, NOW)
+    assert [(r.domain_id, r.status) for r in report.domains] == [("a", "partial"), ("b", "ok")]
+    assert "HTTP 502" in report.domains[0].error and report.rate_limited is False
+
+
+def test_enrichment_knows_the_key_files_of_domains_that_are_not_due(conn, monkeypatch):
+    fakes = Fakes(monkeypatch)
+    other = replace(domain("b"), key_files=("go.mod",))
+    collect_domains(None, conn, [domain("a")], CFG, NOW, all_domains=[domain("a"), other])
+    assert fakes.enriched[0]["key_files_by_domain"]["b"] == ("go.mod",)
+
+
 def test_last_scan_not_advanced_on_partial(conn, monkeypatch):
     repo.set_domain_scanned(conn, "a", "2026-11-01T00:00:00Z", "ok", "h", 3600)
     Fakes(monkeypatch, search=raise_rate_limited)
@@ -113,6 +133,21 @@ def test_interrupted_first_scan_stays_a_silent_baseline(conn, monkeypatch):
     assert [e["baseline"] for e in fakes.enriched] == [True, False]  # silent exactly during the baseline (the interrupted scan never reached enrich)
     assert fakes.searches[2]["window"].start == datetime(2026, 11, 7).date()  # stored last_scan_at - overlap
     assert fakes.searches[0]["per_page"] == CFG.github.per_page
+
+
+def test_unfinished_scan_keeps_its_window_across_days(conn, monkeypatch):
+    fakes = Fakes(monkeypatch, search=raise_rate_limited)
+    collect_domains(None, conn, [domain()], CFG, NOW)  # day 1: interrupted
+    fakes._search = None
+    collect_domains(None, conn, [domain()], CFG, NOW + timedelta(days=1))  # day 2: resumes on day 1's window
+    first, second = (s["window"] for s in fakes.searches)
+    assert second == first
+    assert repo.saved_window(conn, "alpha") is None  # cleared with the cursors once the scan completed
+    # the scan finished on a window that ends yesterday: the next window starts there, so no day is skipped
+    assert repo.get_domain_state(conn, "alpha").last_scan_at == "2026-11-08T00:00:00Z"
+    collect_domains(None, conn, [domain()], CFG, NOW + timedelta(days=2))
+    assert fakes.searches[2]["window"].start == datetime(2026, 11, 7).date()  # 11-08 minus the 1-day overlap
+    assert fakes.searches[2]["window"].end == datetime(2026, 11, 10).date()
 
 
 def test_complete_scan_clears_cursors_partial_keeps_them(conn, monkeypatch):

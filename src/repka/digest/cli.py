@@ -14,6 +14,7 @@ from repka.digest.run import DigestOutcome, run_digest
 from repka.digest.slots import parse_slot
 from repka.domain.schema import load_domains
 from repka.notify.telegram_user import Sender, TelegramUserSender
+from repka.runlock import run_exclusive
 from repka.store.db import connect
 
 
@@ -51,6 +52,10 @@ def _preview_anyway(conn, domains, cfg: AppConfig, now: datetime) -> int:
 
 
 def _cmd_digest(args: argparse.Namespace) -> int:
+    return run_exclusive(lambda: _digest(args), enabled=args.send)  # a send writes state: one at a time
+
+
+def _digest(args: argparse.Namespace) -> int:
     cfg = load_config()
     if args.slot is not None:
         parse_slot(args.slot)

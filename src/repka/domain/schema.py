@@ -29,7 +29,7 @@ SEARCH_KEYS = frozenset({"keywords", "topics", "languages", "exclude", "min_star
 
 @dataclass(frozen=True)
 class SearchSpec:
-    keywords: tuple[tuple[str, ...], ...]  # each group is ORed inside; groups are ANDed
+    keywords: tuple[tuple[str, ...], ...]  # each group is ORed inside; one query per group (groups are never combined)
     topics: tuple[str, ...]
     languages: tuple[str, ...]  # () = no language qualifier
     exclude: tuple[str, ...]

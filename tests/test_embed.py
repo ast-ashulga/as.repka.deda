@@ -7,7 +7,6 @@ import pytest
 from helpers_digest import add_repo, add_verdict, make_db
 from repka import config
 from repka.cli import main
-from repka.config import ConfigError
 from repka.domain.schema import Domain, SearchSpec
 from repka.embed import cli as embed_cli
 from repka.embed import embed as embed_mod
@@ -79,7 +78,7 @@ def test_model_missing_is_config_error():
             json={"error": 'model "nomic-embed-text" not found, try pulling it first'},
         )
 
-    with pytest.raises(ConfigError, match="ollama pull nomic-embed-text"):
+    with pytest.raises(EmbedderUnavailable, match="ollama pull nomic-embed-text"):
         ollama_with(handler).embed(["x"])
 
 

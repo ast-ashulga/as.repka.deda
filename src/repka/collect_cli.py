@@ -93,7 +93,7 @@ def _dry_run(due: list[Domain], states: dict[str, DomainState], cfg: AppConfig, 
     return 0
 
 
-def _line(r: DomainReport) -> str:
+def domain_line(r: DomainReport) -> str:
     if r.status == "skipped":
         return f"{r.domain_id}  skipped"
     return (
@@ -118,7 +118,7 @@ def _summary(report: CollectReport, not_due: list[dict], seconds: float, as_json
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     for r in report.domains:
-        print(_line(r))
+        print(domain_line(r))
         if r.error:
             print(f"  note: {printable(r.error)}")
     if report.rate_limited:
@@ -177,7 +177,7 @@ def _collect_locked(args: argparse.Namespace, cfg: AppConfig, now: datetime, can
         conn.commit()
         started = time.monotonic()
         try:
-            report = collect_domains(client, conn, due, cfg, now, progress=_progress)
+            report = collect_domains(client, conn, due, cfg, now, progress=_progress, all_domains=candidates)
         except Exception as exc:
             repo.finish_run(conn, run_id, "failed", {}, str(exc))
             conn.commit()

@@ -11,6 +11,7 @@ from repka.config import AppConfig, ConfigError, load_config
 from repka.domain.schema import Domain, get_domain, load_domains
 from repka.embed.embed import embed_domain
 from repka.embed.ollama import EmbedderUnavailable, OllamaEmbedder
+from repka.runlock import run_exclusive
 from repka.store.db import connect, utcnow
 from repka.store.repo import repos_for_domain
 from repka.store.vectors import get_index, load_matrix
@@ -60,6 +61,10 @@ def _require_db() -> None:
 
 
 def _cmd_embed(args: argparse.Namespace) -> int:
+    return run_exclusive(lambda: _embed(args))
+
+
+def _embed(args: argparse.Namespace) -> int:
     cfg = load_config()
     domains = _select_domains(args.domain)
     if not domains:

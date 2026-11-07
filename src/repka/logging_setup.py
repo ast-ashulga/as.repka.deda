@@ -6,7 +6,7 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from repka.config import logs_dir
+from repka.config import ConfigError, logs_dir
 
 LOG_FILE_NAME = "repka.log"
 _FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -16,7 +16,7 @@ def setup_logging(level: str = "INFO", verbose: bool = False) -> None:
     """Configure the `repka` logger. verbose forces DEBUG. Calling it again replaces the handlers."""
     numeric = getattr(logging, level.upper(), None)
     if not isinstance(numeric, int):
-        raise ValueError(f"bad log level {level!r}")
+        raise ConfigError(f"bad log level {level!r}")
     if verbose:
         numeric = logging.DEBUG
 

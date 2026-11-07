@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,6 +22,7 @@ from repka.github.stack import parse_deps
 from repka.models import Event, KeyFile, Snapshot
 from repka.store.repo import (
     add_event,
+    domains_of_repo,
     insert_key_file,
     insert_snapshot,
     latest_key_file,
@@ -203,13 +204,21 @@ def _release_event(
 def _key_file_events(
     conn: sqlite3.Connection,
     repo_id: int,
-    domain_id: str,
+    domain_ids: Sequence[str],
     node: dict,
     aliases: dict[str, str],
     texts: dict[str, str | None],
     now: datetime,
+    key_files_by_domain: Mapping[str, Sequence[str]],
 ) -> list[Event]:
+    """Events go to every linked domain; a domain whose key_files are known and lack the path does not get them."""
     events: list[Event] = []
+
+    def emit(kind: str, path: str, payload: dict) -> None:
+        for d in domain_ids:
+            if d not in key_files_by_domain or path in key_files_by_domain[d]:
+                events.append(Event(repo_id, d, kind, payload, now))
+
     for alias, path in aliases.items():
         blob = node.get(alias)
         if not blob:  # file missing: nothing stored
@@ -224,14 +233,14 @@ def _key_file_events(
             continue
         old_oid, old_deps = known
         changed = {"path": path, "old_oid": old_oid, "new_oid": blob["oid"]}
-        events.append(Event(repo_id, domain_id, "key_file_changed", changed, now))
+        emit("key_file_changed", path, changed)
         if deps is not None and old_deps is not None and deps != old_deps:
             payload = {
                 "path": path,
                 "added": sorted(set(deps) - set(old_deps)),
                 "removed": sorted(set(old_deps) - set(deps)),
             }
-            events.append(Event(repo_id, domain_id, "stack_changed", payload, now))
+            emit("stack_changed", path, payload)
     return events
 
 
@@ -249,6 +258,7 @@ def _enrich_one(
     slow_for: set[int],
     stats: EnrichStats,
     baseline: bool = False,
+    key_files_by_domain: Mapping[str, Sequence[str]] = {},
 ) -> None:
     if not node:  # deleted / private / not a repository: keep history
         mark_repo_gone(conn, repo_id)
@@ -263,11 +273,13 @@ def _enrich_one(
         snap, *stamps = _refresh_slow(client, conn, snap, full_name, now, cfg)
     insert_snapshot(conn, snap)
     mark_slow_metrics(conn, repo_id, *stamps)
+    # snapshots and key files are per repo, so a change is news for every domain the repo belongs to
+    domain_ids = list(dict.fromkeys([domain_id, *domains_of_repo(conn, repo_id)]))
     events = []
     release = _release_event(repo_id, domain_id, snap, prev, node, now, baseline)
     if release:
-        events.append(release)
-    events += _key_file_events(conn, repo_id, domain_id, node, aliases, texts, now)
+        events += [replace(release, domain_id=d) for d in domain_ids]
+    events += _key_file_events(conn, repo_id, domain_ids, node, aliases, texts, now, key_files_by_domain)
     for event in events:
         add_event(conn, event)
     stats.slow_refreshed += any(stamps)
@@ -286,11 +298,15 @@ def enrich_repos(
     slow_for: set[int],
     baseline: bool = False,
     progress: Callable[[int, int], None] | None = None,
+    key_files_by_domain: Mapping[str, Sequence[str]] = {},
 ) -> EnrichStats:
     """Snapshot `repo_ids` in batches of `cfg.enrich_batch`; slow REST metrics only for `slow_for`.
 
     `baseline=True` (a domain's silent first scan) emits no `release` event for a repo seen for the first time,
-    so releases up to a week old do not flood the first digest; a repo that already has a snapshot still can."""
+    so releases up to a week old do not flood the first digest; a repo that already has a snapshot still can.
+
+    Events are written for every domain the repo is linked to; `key_files_by_domain` (domain id -> its key_files)
+    limits key-file and stack events to domains that track the path (an unknown domain gets them)."""
     stats = EnrichStats()
     query, aliases = build_enrich_query(key_files)
     since = {"since7": _iso(now - timedelta(days=7)), "since30": _iso(now - timedelta(days=30))}
@@ -315,7 +331,7 @@ def enrich_repos(
                 conn.execute("SAVEPOINT enrich_repo")
                 try:
                     _enrich_one(client, conn, domain_id, repo_id, node, rows[repo_id]["full_name"],
-                                aliases, texts, now, cfg, slow_for, stats, baseline)
+                                aliases, texts, now, cfg, slow_for, stats, baseline, key_files_by_domain)
                 except (RateLimited, ConfigError):  # AuthError is a ConfigError: both must stop the run
                     conn.execute("ROLLBACK TO enrich_repo")
                     raise

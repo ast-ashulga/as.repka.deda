@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from repka import __version__
 from repka import collect_cli, doctor_cli, run_cli, schedule
-from repka.config import load_config
+from repka.config import ConfigError, load_config
 from repka.digest import cli as digest_cli
 from repka.domain import cli as domain_cli
 from repka.embed import cli as embed_cli
@@ -76,9 +76,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.print_help()
             return 0
         return int(func(args))
-    except ValueError as exc:  # ConfigError is a ValueError
+    except ConfigError as exc:  # the user can fix it
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except ValueError as exc:  # anything else is a runtime failure, not a usage error
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

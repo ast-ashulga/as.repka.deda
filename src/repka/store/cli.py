@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from repka.config import db_path
+from repka.config import ConfigError, db_path
 from repka.store import repo
 from repka.store.db import connect, migrate
 
@@ -22,7 +22,7 @@ def _migrate(_args: argparse.Namespace) -> int:
 def _stats(_args: argparse.Namespace) -> int:
     path = db_path()
     if not path.exists():
-        raise ValueError(f"no database at {path}; run `repka db migrate` first")
+        raise ConfigError(f"no database at {path}; run `repka db migrate` first")
     conn = connect(readonly=True)
     try:
         counts = repo.table_counts(conn)

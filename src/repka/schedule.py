@@ -1,7 +1,8 @@
 """`repka schedule install|uninstall|status`: one launchd user agent (`com.repka.run`) that runs `repka run`.
 
 Nothing is installed automatically: only these explicit commands touch ~/Library/LaunchAgents or launchctl.
-The plist carries no secrets and no environment variables; `.env` is read by repka itself at run time.
+The plist carries no secrets: only PATH (launchd's default lacks the `gh` dir) and REPKA_HOME (when set at install);
+`.env` is read by repka itself at run time.
 launchctl verbs used: `bootstrap gui/<uid> <plist>`, `bootout gui/<uid>/<label>`, `print gui/<uid>/<label>`
 (the documented launchctl(1) subcommands on macOS 10.10+; not exercised against a real agent in tests).
 """
@@ -37,7 +38,20 @@ def plist_path() -> Path:
     return Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 
-def plist_xml(uv_path: str, root: Path, interval_s: int = 3600) -> str:
+def launchd_env() -> dict[str, str]:
+    """PATH (current PATH plus the dir of `gh`, which launchd's /usr/bin:/bin default lacks) and REPKA_HOME if set."""
+    dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d]
+    gh = shutil.which("gh")
+    if gh:
+        dirs.insert(0, str(Path(gh).parent))
+    dirs += ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    env = {"PATH": os.pathsep.join(dict.fromkeys(dirs))}
+    if os.environ.get("REPKA_HOME"):
+        env["REPKA_HOME"] = os.environ["REPKA_HOME"]
+    return env
+
+
+def plist_xml(uv_path: str, root: Path, interval_s: int = 3600, env: dict[str, str] | None = None) -> str:
     data = {
         "Label": LABEL,
         "ProgramArguments": [uv_path, "run", "--project", str(root), "repka", "run"],
@@ -47,6 +61,8 @@ def plist_xml(uv_path: str, root: Path, interval_s: int = 3600) -> str:
         "StandardOutPath": str(root / "logs" / "launchd.log"),
         "StandardErrorPath": str(root / "logs" / "launchd.log"),
     }
+    if env:
+        data["EnvironmentVariables"] = env
     return plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False).decode()
 
 
@@ -83,7 +99,7 @@ def install(
     if not uv:
         raise ScheduleError("uv not found on PATH: install uv (https://docs.astral.sh/uv/) and retry")
     root = project_root()
-    xml = plist_xml(uv, root, interval_s)
+    xml = plist_xml(uv, root, interval_s, launchd_env())
     if dry_run:
         return xml
     path = plist_path()

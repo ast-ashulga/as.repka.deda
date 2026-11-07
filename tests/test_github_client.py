@@ -322,3 +322,12 @@ def test_live_search_total_count():
         assert client.search_total_count("topic:mcp") > 0
     finally:
         client.close()
+
+
+def test_single_attempt_client_fails_fast_when_offline():
+    rec = Recorder(httpx.ConnectError("down"))
+    fake = FakeTime()
+    client = GitHubClient(TOKEN, GithubConfig(), transport=httpx.MockTransport(rec), sleep=fake.sleep, max_server_retries=0)
+    with pytest.raises(GitHubError):
+        client.check_auth()
+    assert len(rec.requests) == 1 and fake.sleeps == []

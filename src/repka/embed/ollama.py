@@ -7,8 +7,6 @@ from typing import Protocol
 
 import httpx
 
-from repka.config import ConfigError
-
 
 class EmbedderUnavailable(RuntimeError):
     """The embedding service cannot be reached or failed at runtime. Exit code 1, not a config error."""
@@ -52,7 +50,7 @@ class OllamaEmbedder:
         except httpx.HTTPError as exc:
             raise EmbedderUnavailable(f"Ollama request failed: {exc}") from None
         if resp.status_code == 404:
-            raise ConfigError(
+            raise EmbedderUnavailable(  # expected and fixable: a one-line stage error, not a traceback each run
                 f"embedding model {self.model} missing: run `ollama pull {self.model}`"
             )
         if resp.status_code != 200:

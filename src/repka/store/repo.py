@@ -94,6 +94,12 @@ def domain_has_repo(conn: sqlite3.Connection, domain_id: str, repo_id: int) -> b
     return row is not None
 
 
+def domains_of_repo(conn: sqlite3.Connection, repo_id: int) -> list[str]:
+    """Every domain the repo is linked to (a repo can match several; snapshots and key files are per repo)."""
+    rows = conn.execute("SELECT domain_id FROM domain_repos WHERE repo_id = ? ORDER BY domain_id", (repo_id,))
+    return [r["domain_id"] for r in rows]
+
+
 def mark_repo_gone(conn: sqlite3.Connection, repo_id: int) -> None:
     conn.execute("UPDATE repos SET status = 'gone' WHERE repo_id = ?", (repo_id,))
 
@@ -253,6 +259,22 @@ def mark_cursor(
 def clear_cursors(conn: sqlite3.Connection, domain_id: str) -> None:
     """Forget a domain's finished slices. Called when a scan completes: cursor rows exist only to resume an unfinished one."""
     conn.execute("DELETE FROM search_cursor WHERE domain_id = ?", (domain_id,))
+
+
+WINDOW_KEY = "_window"  # a pseudo query_key: the scan window of an unfinished scan, kept in `slice` (no schema change)
+
+
+def saved_window(conn: sqlite3.Connection, domain_id: str) -> str | None:
+    """`field:start..end` of the unfinished scan, or None. Slice keys contain the window's dates, so an
+    unfinished scan must keep its window (not recompute it from today's date) for its cursor rows to match."""
+    row = conn.execute(
+        "SELECT slice FROM search_cursor WHERE domain_id = ? AND query_key = ?", (domain_id, WINDOW_KEY)
+    ).fetchone()
+    return row["slice"] if row else None
+
+
+def save_window(conn: sqlite3.Connection, domain_id: str, window: str, now: str) -> None:
+    mark_cursor(conn, domain_id, WINDOW_KEY, window, 0, False, now)
 
 
 @dataclass(frozen=True)
