@@ -1,5 +1,6 @@
 import importlib
 import pkgutil
+import sys
 from pathlib import Path
 
 import repka
@@ -18,3 +19,5 @@ def test_all_python_files_compile():
 def test_all_repka_modules_import():
     for module in pkgutil.walk_packages(repka.__path__, "repka."):
         importlib.import_module(module.name)
+    # model runtimes live in the decider virtualenvs, never in the main package
+    assert not {"torch", "transformers", "mlx"} & set(sys.modules)
