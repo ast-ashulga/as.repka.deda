@@ -56,7 +56,7 @@ as.repka.deda/
 │   ├── triage/  deciders.py  triage.py
 │   ├── embed/   ollama.py  embed.py
 │   ├── digest/  build.py  render.py  slots.py
-│   ├── notify/  mcp_client.py  telegram_user.py
+│   ├── notify/  mcp_client.py  telegram_user.py  cli.py
 │   ├── logging_setup.py      # stderr + rotating logs/repka.log
 │   ├── collect.py            # due_domains(), collect_domains() (+ collect_cli.py)
 │   ├── schedule.py           # launchd plist install/uninstall
@@ -211,7 +211,8 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | `repka embed [--domain ID]` | compute missing embeddings | P1-T18 |
 | `repka similar <owner/name> [-k 10]` | nearest repos by embedding (debug aid) | P1-T18 |
 | `repka digest [--slot morning] [--send] [--dry-run]` | build (and optionally send) a digest now | P1-T21 |
-| `repka notify test "text" [--dry-run]` / `notify chats` | Telegram connectivity helpers | P1-T20 |
+| `repka notify login` | one-time interactive Telegram login (`fast-mcp-telegram-setup`; session in `.sessions/telegram.session`) | P1-T20 |
+| `repka notify test "text" [--dry-run]` | send one HTML-escaped message to `notify.chat_id`; refused (exit 2) unless `notify.enabled: true`; `--dry-run` opens no session | P1-T20 |
 | `repka run [--send] [--domain ID]` | one full pass (what launchd calls) | P1-T22 |
 | `repka schedule install\|uninstall\|status` | launchd agent | P1-T23 |
 | `repka db migrate` | create or upgrade `.state/repka.db` (idempotent) | P1-T09 |

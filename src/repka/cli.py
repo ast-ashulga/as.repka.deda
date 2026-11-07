@@ -14,6 +14,7 @@ from repka import __version__
 from repka.config import load_config
 from repka.domain import cli as domain_cli
 from repka.logging_setup import setup_logging
+from repka.notify import cli as notify_cli
 from repka.store import cli as store_cli
 
 DESCRIPTION = (
@@ -49,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Subcommands register here: each module exposes register(sub) and is called from this function.
     domain_cli.register(sub)
     store_cli.register(sub)
+    notify_cli.register(sub)
     return parser
 
 
