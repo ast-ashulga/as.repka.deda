@@ -13,7 +13,7 @@ Format: context → decision → consequences. Status: `accepted` unless noted. 
 - **Context:** The requirements say "sqlite-vss or DuckDB". sqlite-vss is unmaintained; its successor is sqlite-vec (pre-v1). Extension loading may be disabled in some macOS Python builds.
 - **Decision:** One SQLite file. Vectors are stored as float32 BLOBs in `embeddings` (source of truth). `vec0` index tables are optional and built from them when `sqlite_vec` loads; otherwise `store/vectors.py` falls back to brute-force numpy cosine. Spike [P1-T02](../plans/phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python) decides whether the index is used at all.
 - **Consequences:** Pin the exact sqlite-vec version. Never mix models: every vector row carries `model` and `dim`.
-- **Status:** Spike [P1-T02](../spikes/T02-sqlite-vec.md): NO-GO for the `vec0` index (extension loads, but numpy is about 20-28x faster at 5k-50k vectors). numpy brute force is the default; sqlite-vec 0.1.9 stays pinned as an optional path.
+- **Status:** Spike [P1-T02](../spikes/T02-sqlite-vec.md): NO-GO for the `vec0` index (extension loads, but numpy is about 20-28x faster at 5k-50k vectors). numpy brute force is the default; sqlite-vec 0.1.9 stays pinned as an optional path. P1-T17 implemented numpy only (no `vec0` code path, YAGNI); the spike script and extension test keep the switch cheap.
 
 ## ADR-003: Local decider backends via worker subprocesses
 - **Context:** Deciders need conflicting ML stacks (transformers versions, MLX).
