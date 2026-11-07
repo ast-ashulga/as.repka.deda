@@ -75,6 +75,8 @@ def test_slot_label()
 
 **Acceptance criteria:** RF4 pinned; rendering is valid Telegram HTML (only `b i a code` tags); the builder writes nothing (pure read).
 
+**Implementation notes (P1-T19):** `RepoMetrics` lives in `models.py` and is imported by `store/metrics.py`. `DigestItem.line_kind` values: `new`, `found`, `release`, `mover`, `stack` (T21 writes `digest_items.kind` from them; the 24 h mover check reads `kind='mover'` of `sent` digests). One item per (repo, line_kind); a repo's several `stack_changed` events merge into one item (`text_fields["changes"]`). Test seed helpers: `tests/helpers_digest.py`.
+
 ---
 
 ### P1-T20: Telegram sender (user account via fast-mcp-telegram)

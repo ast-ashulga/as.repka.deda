@@ -13,10 +13,12 @@ from collections.abc import Sequence
 from repka import __version__
 from repka import collect_cli
 from repka.config import load_config
+from repka.digest import cli as digest_cli
 from repka.domain import cli as domain_cli
 from repka.logging_setup import setup_logging
 from repka.notify import cli as notify_cli
 from repka.store import cli as store_cli
+from repka.triage import cli as triage_cli
 
 DESCRIPTION = (
     "repka: monitor GitHub repositories in user-defined technology domains, "
@@ -53,6 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     collect_cli.register(sub)
     store_cli.register(sub)
     notify_cli.register(sub)
+    digest_cli.register(sub)
+    triage_cli.register(sub)
     return parser
 
 

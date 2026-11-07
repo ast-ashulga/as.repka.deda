@@ -50,12 +50,12 @@ as.repka.deda/
 │   ├── runlock.py            # RunLock (flock .state/run.lock)
 │   ├── preflight.py          # Finding, check()
 │   ├── models.py             # shared dataclasses (§ 6)
-│   ├── domain/  schema.py  matrix.py  wizard.py
+│   ├── domain/  schema.py  matrix.py  wizard.py  suggest.py
 │   ├── github/  client.py  search.py  enrich.py  stack.py
 │   ├── store/   db.py  repo.py  vectors.py  metrics.py  migrations/NNN_*.sql
 │   ├── triage/  deciders.py  triage.py
 │   ├── embed/   ollama.py  embed.py
-│   ├── digest/  build.py  render.py  slots.py
+│   ├── digest/  build.py  render.py  slots.py  run.py  cli.py
 │   ├── notify/  mcp_client.py  telegram_user.py  cli.py
 │   ├── logging_setup.py      # stderr + rotating logs/repka.log
 │   ├── collect.py            # due_domains(), collect_domains() (+ collect_cli.py)
@@ -177,7 +177,7 @@ Created by migrations in `src/repka/store/migrations/`. All timestamps are UTC I
 2. **Enrich** (`github/enrich.py`): repos of the domain seen in this scan + all accepted repos of the domain (to track metrics of known players) → GraphQL batches → `snapshots`, `key_files`; emit `release` (new `latest_release_tag`), `key_file_changed` (new oid, not first sighting), `stack_changed` (deps diff non-empty). Slow REST metrics (contributors, participation) are fetched **only for accepted repos**, refreshed every `collect.slow_metrics_every` (protects the 5,000/h core budget).
 3. **Triage** (`triage/triage.py`): repos of the domain without a verdict for `(model, questions_hash, input_hash)` → one worker run → `verdicts`. `accepted = passes all thresholds`. README excerpts come from `repos.readme_excerpt` when fresh; a README fetch that hits `RateLimited` leaves that repo pending for the next run.
 4. **Embed** (`embed/embed.py`): accepted repos without an embedding for `(model, input_hash)`.
-5. **Digest** (`digest/*`): only events of **accepted** repos (or `new_repo` events whose repo got accepted) with `digest_id IS NULL`, plus a "top movers" section (accepted repos with `stars_delta_1d >= digest.star_spike_min_delta`, computed from snapshots), grouped by domain, ranked; after a real send, events get `digest_id`.
+5. **Digest** (`digest/*`): only events of **accepted** repos (or `new_repo` events whose repo got accepted) with `digest_id IS NULL`, plus a "top movers" section (accepted repos with `stars_delta_1d >= digest.star_spike_min_delta`, computed from snapshots), grouped by domain, ranked; after a real send, events get `digest_id`. The builder is a pure read: it returns `shown_event_ids` and `consumed_event_ids` (rejected, bare `key_file_changed`, overflow) for the sender to stamp. A `stars_delta` whose baseline would be the latest snapshot itself is `null` (one snapshot proves no growth); `velocity` counts NULL inputs (e.g. after a failed slow-metric refresh) as 0.
 
 Rate-limit behaviour: a `RateLimited` exception from the GitHub client stops collection/enrichment for **all** domains in this run, keeps everything already written, sets the run status `partial`, and the pipeline proceeds to triage/digest with what it has.
 
@@ -210,13 +210,13 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | Command | Purpose | Task |
 |---|---|---|
 | `repka doctor` | preflight report, numbered to-do list | P1-T24 |
-| `repka domain new [--from-file desc.md]` | interactive wizard → `domains/<id>.yaml` | P1-T07 |
+| `repka domain new [--from-file PATH] [--probe]` | interactive wizard (answers may be piped, one per line) → `domains/<id>.yaml`; `--probe` counts GitHub results per query (network) | P1-T07 |
 | `repka domain list` / `show <id>` / `plan <id> [--json]` | inspect domains and expanded query matrix | P1-T05/T06 |
 | `repka collect [--domain ID] [--dry-run] [--json]` | search + enrich due (or given) domains; progress on stderr, summary (or `--json`) on stdout; takes `.state/run.lock`; a rate limit ends the run `partial` with exit 0 | P1-T13 |
-| `repka triage [--domain ID] [--dry-run] [--limit N]` | run deciders on pending repos | P1-T15 |
+| `repka triage [--domain ID] [--limit N] [--dry-run] [--json]` | run deciders on pending repos (all enabled domains, or one); summary + table `repo · relevant p · substance · kind · accepted` on stdout; runs even when `triage.enabled` is false (stderr note: that flag only governs `repka run`); `--dry-run` prints the pending count and the first model input, loads no model, writes nothing; worker crash → `error:` + exit 1, repos stay pending | P1-T15 |
 | `repka embed [--domain ID]` | compute missing embeddings | P1-T18 |
 | `repka similar <owner/name> [-k 10]` | nearest repos by embedding (debug aid) | P1-T18 |
-| `repka digest [--slot morning] [--send] [--dry-run]` | build (and optionally send) a digest now | P1-T21 |
+| `repka digest [--slot HH:MM] [--send] [--dry-run]` | preview the pending digest on stdout (default and `--dry-run`: read-only connection, nothing sent or written); when no slot is due, the CLI previews the latest passed slot anyway (stderr note). `--send` needs `notify.enabled: true` (exit 2 otherwise), sends the due slot and records it | P1-T21 |
 | `repka notify login` | one-time interactive Telegram login (`fast-mcp-telegram-setup`; session in `.sessions/telegram.session`) | P1-T20 |
 | `repka notify test "text" [--dry-run]` | send one HTML-escaped message to `notify.chat_id`; refused (exit 2) unless `notify.enabled: true`; `--dry-run` opens no session | P1-T20 |
 | `repka run [--send] [--domain ID]` | one full pass (what launchd calls) | P1-T22 |
