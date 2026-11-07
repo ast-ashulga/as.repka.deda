@@ -1,0 +1,5 @@
+{
+  "name": "demo",
+  "dependencies": { "express": "^4.0.0", "@modelcontextprotocol/sdk": "^1.0.0" },
+  "devDependencies": { "Typescript": "^5.0.0" }
+}

@@ -6,6 +6,7 @@ import pytest
 from repka.cli import main
 from repka.models import Event, KeyFile, RepoHit, Snapshot
 from repka.store import repo
+from repka.store import db
 from repka.store.db import connect, migrate, utcnow
 from repka.store.repo import DomainState, SqliteEtagCache
 
@@ -63,7 +64,7 @@ def test_migrate_creates_tables_and_is_idempotent(tmp_path):
     c = connect(tmp_path / "m.db")
     v1 = migrate(c)
     v2 = migrate(c)
-    assert v1 == v2 == 1
+    assert v1 == v2 == max(n for n, _ in db._migrations())
     assert "repos" in repo.table_counts(c)
     c.close()
 

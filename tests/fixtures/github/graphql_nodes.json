@@ -1,0 +1,74 @@
+{
+ "nodes": [
+  {
+   "id": "R_100",
+   "databaseId": 100,
+   "stargazerCount": 1200,
+   "forkCount": 80,
+   "issues": {
+    "totalCount": 14
+   },
+   "watchers": {
+    "totalCount": 33
+   },
+   "defaultBranchRef": {
+    "target": {
+     "c7": {
+      "totalCount": 5
+     },
+     "c30": {
+      "totalCount": 21
+     }
+    }
+   },
+   "releases": {
+    "nodes": [
+     {
+      "tagName": "v1.2.0",
+      "name": "Release 1.2.0",
+      "publishedAt": "2026-11-05T10:00:00Z",
+      "createdAt": "2026-11-05T09:50:00Z",
+      "url": "https://github.com/octo/cat/releases/tag/v1.2.0"
+     },
+     {
+      "tagName": "v1.1.0",
+      "name": "Release 1.1.0",
+      "publishedAt": "2026-09-01T10:00:00Z",
+      "createdAt": "2026-09-01T09:50:00Z",
+      "url": "https://github.com/octo/cat/releases/tag/v1.1.0"
+     },
+     {
+      "tagName": "v1.0.0",
+      "name": "Release 1.0.0",
+      "publishedAt": "2026-06-01T10:00:00Z",
+      "createdAt": "2026-06-01T09:50:00Z",
+      "url": "https://github.com/octo/cat/releases/tag/v1.0.0"
+     }
+    ]
+   },
+   "kf0": {
+    "id": "B_0",
+    "oid": "oid-pyproject-1"
+   },
+   "kf1": null
+  },
+  {
+   "id": "R_200",
+   "databaseId": 200,
+   "stargazerCount": 0,
+   "forkCount": 0,
+   "issues": {
+    "totalCount": 0
+   },
+   "watchers": {
+    "totalCount": 0
+   },
+   "defaultBranchRef": null,
+   "releases": {
+    "nodes": []
+   },
+   "kf0": null,
+   "kf1": null
+  }
+ ]
+}

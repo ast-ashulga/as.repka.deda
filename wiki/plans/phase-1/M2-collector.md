@@ -212,6 +212,8 @@ def test_participation_202_stores_null_and_retries_next_time()
 - [ ] **Step 5: Optional live check:** enrich 3 well-known repos with `REPKA_LIVE=1`; verify numbers match the GitHub UI roughly.
 - [ ] **Step 6: Commit & push**, report. Message: `feat(github): enrichment snapshots, key files, stack and events`.
 
+**As built (deviations, P1-T12):** (1) the slow-metric refresh rule uses new stamps `repos.contributors_at` / `participation_at` (migration `002_slow_metrics_at.sql`, helpers `slow_metrics_fetched_at` / `mark_slow_metrics` in `store/repo.py`), tracked per metric, because snapshots carry the last values forward and "last non-null snapshot" would never go stale; (2) `build_enrich_query` declares only `$ids`, `$since7`, `$since30` (an unused `$since90` is a GraphQL validation error) and `releases_90d` is counted from the last 10 releases; (3) a repo whose latest snapshot already has the same `taken_at` second is skipped (same repo in two domains within one run); (4) the changed-blob text query uses the Blob node `id` (`nodes(ids:) { ... on Blob { text } }`).
+
 **Acceptance criteria:** all metrics from R-1.2b land in `snapshots`/`key_files`; events emitted only by the rules above; one GraphQL call per 50 repos (+1 per batch with changed key files).
 
 ---

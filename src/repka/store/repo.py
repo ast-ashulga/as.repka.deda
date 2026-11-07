@@ -187,6 +187,28 @@ def insert_key_file(conn: sqlite3.Connection, kf: KeyFile, deps: list[str] | Non
     )
 
 
+def slow_metrics_fetched_at(conn: sqlite3.Connection, repo_id: int) -> tuple[str | None, str | None]:
+    """(contributors_at, participation_at): when each slow metric was last fetched successfully."""
+    row = conn.execute(
+        "SELECT contributors_at, participation_at FROM repos WHERE repo_id = ?", (repo_id,)
+    ).fetchone()
+    return (row["contributors_at"], row["participation_at"]) if row else (None, None)
+
+
+def mark_slow_metrics(
+    conn: sqlite3.Connection, repo_id: int, contributors_at: str | None, participation_at: str | None
+) -> None:
+    """Record successful slow-metric fetches; a None argument leaves that stamp unchanged."""
+    conn.execute(
+        """
+        UPDATE repos SET contributors_at = COALESCE(?, contributors_at),
+                         participation_at = COALESCE(?, participation_at)
+        WHERE repo_id = ?
+        """,
+        (contributors_at, participation_at, repo_id),
+    )
+
+
 def add_event(conn: sqlite3.Connection, e: Event) -> int:
     cur = conn.execute(
         """
