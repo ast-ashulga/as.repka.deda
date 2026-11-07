@@ -181,6 +181,12 @@ Created by migrations in `src/repka/store/migrations/`. All timestamps are UTC I
 
 Rate-limit behaviour: a `RateLimited` exception from the GitHub client stops collection/enrichment for **all** domains in this run, keeps everything already written, sets the run status `partial`, and the pipeline proceeds to triage/digest with what it has.
 
+**Scan bookkeeping (`collect.py`, P1-T13).**
+- `domains.last_scan_at` advances **only when a scan completes** (`last_scan_status = ok`). A `partial` scan (rate limit, GitHub error, or `collect.max_repos_per_domain_scan` reached) records the status and leaves `last_scan_at` untouched. So "`last_scan_at` is set" means "a complete baseline exists": an interrupted first scan stays a silent baseline (no `new_repo` events) until one scan completes, and the scan window of later scans starts at the stored `last_scan_at − overlap`.
+- A domain whose last scan was `partial` is due again immediately (to resume), otherwise `scan_every` after `last_scan_at`.
+- `search_cursor` rows exist only for an **unfinished** scan: the next run skips their slices (RF1) and they are deleted when a scan completes. Consequences: a forced rerun (`--domain`) right after a complete scan searches again instead of skipping everything; a resume that crosses UTC midnight uses new slice keys (the window end date changed) and re-reads the window, which is harmless (upserts are idempotent, `new_repo` is emitted only on first sighting in the domain).
+- Enrichment targets of a scan: repos matched since the last complete scan (this includes repos stored by an earlier interrupted run), plus all accepted repos, plus repos that have no snapshot yet; `gone` repos are skipped. Slow metrics only for the accepted ones. The whole run uses one `now`.
+
 ## 6. Core types (`src/repka/models.py`)
 
 Frozen dataclasses shared across modules (fields listed; types in the owning task):
@@ -206,7 +212,7 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | `repka doctor` | preflight report, numbered to-do list | P1-T24 |
 | `repka domain new [--from-file desc.md]` | interactive wizard → `domains/<id>.yaml` | P1-T07 |
 | `repka domain list` / `show <id>` / `plan <id> [--json]` | inspect domains and expanded query matrix | P1-T05/T06 |
-| `repka collect [--domain ID] [--dry-run]` | search + enrich due (or given) domains | P1-T13 |
+| `repka collect [--domain ID] [--dry-run] [--json]` | search + enrich due (or given) domains; progress on stderr, summary (or `--json`) on stdout; takes `.state/run.lock`; a rate limit ends the run `partial` with exit 0 | P1-T13 |
 | `repka triage [--domain ID] [--dry-run] [--limit N]` | run deciders on pending repos | P1-T15 |
 | `repka embed [--domain ID]` | compute missing embeddings | P1-T18 |
 | `repka similar <owner/name> [-k 10]` | nearest repos by embedding (debug aid) | P1-T18 |

@@ -15,6 +15,22 @@ uv run repka --help
 Settings live in `.config.yaml` (every key optional, every flag off by default). Agent and
 developer notes are in [CLAUDE.md](CLAUDE.md).
 
+## Collecting repositories
+
+A domain is collected only when `enabled: true` in `domains/<id>.yaml`. The GitHub token comes from
+`REPKA_GITHUB_TOKEN` in `.env`, or from `gh auth login`.
+
+```bash
+uv run repka collect --dry-run          # which domains are due, their windows and query counts; no network
+uv run repka collect                    # search + enrich every due domain (progress on stderr)
+uv run repka collect --domain ID --json # force one domain; machine-readable summary on stdout
+uv run repka db stats                   # row counts afterwards
+```
+
+The first scan of a domain (window `collect.first_window`) is a silent baseline: no "new repo" events.
+A GitHub rate limit stops the run cleanly (status `partial`, exit 0); what was collected is kept and the
+next `repka collect` continues. Running it again right away reports the domain as not due.
+
 ## Telegram (digest delivery)
 
 Digests are sent from your own Telegram account (default chat `"me"` = Saved Messages) through

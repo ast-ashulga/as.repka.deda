@@ -250,6 +250,11 @@ def mark_cursor(
     )
 
 
+def clear_cursors(conn: sqlite3.Connection, domain_id: str) -> None:
+    """Forget a domain's finished slices. Called when a scan completes: cursor rows exist only to resume an unfinished one."""
+    conn.execute("DELETE FROM search_cursor WHERE domain_id = ?", (domain_id,))
+
+
 @dataclass(frozen=True)
 class DomainState:
     domain_id: str

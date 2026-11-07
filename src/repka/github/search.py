@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from math import ceil
@@ -226,15 +227,22 @@ def collect_search(
     emit_new: bool,
     *,
     per_page: int = 100,
+    progress: Callable[[int, int, Query, QueryStats], None] | None = None,
 ) -> tuple[QueryStats, set[int]]:
-    """Collect every query of the domain's matrix, summed, within a total budget of `max_repos` hits."""
+    """Collect every query of the domain's matrix, summed, within a total budget of `max_repos` hits.
+
+    `progress(index, count, query, stats)` is called after each finished query (1-based index).
+    """
     total = QueryStats()
     seen: set[int] = set()
-    for query in build_queries(domain):
+    queries = build_queries(domain)
+    for index, query in enumerate(queries, 1):
         left = max_repos - total.hits
         if left <= 0:
             break
         stats, ids = collect_query(client, conn, domain.id, query, window, now, left, emit_new, per_page=per_page)
         total.add(stats)
         seen |= ids
+        if progress is not None:
+            progress(index, len(queries), query, stats)
     return total, seen
