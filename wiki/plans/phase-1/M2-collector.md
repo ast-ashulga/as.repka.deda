@@ -31,7 +31,7 @@ Fixtures: recorded GitHub JSON lives in `tests/fixtures/github/`. Record them on
     `mark_repo_gone(conn, repo_id: int) -> None` ·
     `insert_snapshot(conn, s: Snapshot) -> None` · `latest_snapshot(conn, repo_id: int) -> Snapshot | None` · `snapshots_for(conn, repo_id: int, since: str | None = None) -> list[Snapshot]` ·
     `latest_key_file(conn, repo_id: int, path: str) -> tuple[str, list[str] | None] | None` · `insert_key_file(conn, kf: KeyFile, deps: list[str] | None, now: str) -> None` ·
-    `add_event(conn, e: Event) -> int` ·
+    `domain_has_repo(conn, domain_id: str, repo_id: int) -> bool` (added by T11) · `add_event(conn, e: Event) -> int` ·
     `cursor_done(conn, domain_id: str, query_key: str, slice_key: str) -> bool` · `mark_cursor(conn, domain_id, query_key, slice_key, total_count: int, capped: bool, now: str) -> None` ·
     `@dataclass DomainState(domain_id: str, last_scan_at: str | None, last_scan_status: str | None)` · `get_domain_state(conn, domain_id) -> DomainState` (row-less → all None) · `set_domain_scanned(conn, domain_id, at: str, status: str, profile_hash: str, scan_every_s: int) -> None` ·
     `repos_for_domain(conn, domain_id: str, accepted_only: bool = False) -> list[sqlite3.Row]` (accepted = latest verdict row `accepted=1`) ·
@@ -133,8 +133,8 @@ def test_graphql_tolerates_not_found_node_errors()
   - `@dataclass(frozen=True) Slice(field: str, start: date, end: date)` with `qualifier() -> str` (`created:2026-01-01..2026-03-31`), `key() -> str` (`created:2026-01-01..2026-03-31`), `days() -> int`, `halves() -> tuple[Slice, Slice]` (split at the midpoint date; the second half starts the day after the first ends).
   - `hit_from_item(item: dict) -> RepoHit`.
   - `@dataclass QueryStats(slices: int = 0, pages: int = 0, hits: int = 0, new: int = 0, capped: int = 0, incomplete: int = 0)`.
-  - `collect_query(client, conn, domain_id: str, query: Query, window: Window, now: str, budget: int, emit_new: bool) -> tuple[QueryStats, set[int]]` — returns stats and the repo ids seen; `budget` = max hits still allowed for this domain scan; `emit_new=False` on the domain's first scan (silent baseline).
-  - `collect_search(client, conn, domain: Domain, window: Window, now: str, max_repos: int, emit_new: bool) -> tuple[QueryStats, set[int]]` — over all queries, summed.
+  - `collect_query(client, conn, domain_id: str, query: Query, window: Window, now: str, budget: int, emit_new: bool, *, per_page: int = 100) -> tuple[QueryStats, set[int]]` — returns stats and the repo ids seen; `budget` = max hits still allowed for this domain scan; `emit_new=False` on the domain's first scan (silent baseline).
+  - `collect_search(client, conn, domain: Domain, window: Window, now: str, max_repos: int, emit_new: bool, *, per_page: int = 100) -> tuple[QueryStats, set[int]]` — over all queries, summed. **Callers (T13) pass `per_page=cfg.github.per_page`**: it is sent explicitly on every request and drives short-page detection and the page cap `ceil(1000 / per_page)` (10 at the default). `seen` only holds repos read in *this* call (slices skipped via `search_cursor` add nothing), so enrichment targets should come from `domain_repos`, not from `seen` alone. A finished bisected parent slice is also cursor-marked, so a resumed run does not re-probe it.
 
 Algorithm (fixed): for the window as one slice, read page 1 (`per_page` from config, `sort=stars`). If `total_count > 1000` and `days() > 1` → recurse into `halves()` (discarding that page). If `total_count > 1000` at 1 day → keep it, mark `capped`, `log.warning("slice capped ...")`. Otherwise page until a page has fewer than `per_page` items or page 10. If `incomplete_results` on a page → retry that page once with `per_page=50` (adjusting page numbers) and count `incomplete`. Commit after every page. After a slice completes, `mark_cursor`. Skip slices where `cursor_done`. On the first sighting of a repo in this domain, add `Event(kind="new_repo", payload={"created_at": ...})` — only when `emit_new` is true. `RateLimited` propagates after committing finished pages.
 
@@ -211,6 +211,8 @@ def test_participation_202_stores_null_and_retries_next_time()
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement** `stack.py`, then `enrich.py`. **Step 4: Run** → PASS.
 - [ ] **Step 5: Optional live check:** enrich 3 well-known repos with `REPKA_LIVE=1`; verify numbers match the GitHub UI roughly.
 - [ ] **Step 6: Commit & push**, report. Message: `feat(github): enrichment snapshots, key files, stack and events`.
+
+**As built (deviations, P1-T12):** (1) the slow-metric refresh rule uses new stamps `repos.contributors_at` / `participation_at` (migration `002_slow_metrics_at.sql`, helpers `slow_metrics_fetched_at` / `mark_slow_metrics` in `store/repo.py`), tracked per metric, because snapshots carry the last values forward and "last non-null snapshot" would never go stale; (2) `build_enrich_query` declares only `$ids`, `$since7`, `$since30` (an unused `$since90` is a GraphQL validation error) and `releases_90d` is counted from the last 10 releases; (3) a repo whose latest snapshot already has the same `taken_at` second is skipped (same repo in two domains within one run); (4) the changed-blob text query uses the Blob node `id` (`nodes(ids:) { ... on Blob { text } }`).
 
 **Acceptance criteria:** all metrics from R-1.2b land in `snapshots`/`key_files`; events emitted only by the rules above; one GraphQL call per 50 repos (+1 per batch with changed key files).
 

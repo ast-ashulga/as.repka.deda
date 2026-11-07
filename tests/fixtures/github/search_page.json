@@ -1,0 +1,18 @@
+{
+ "total_count": 2,
+ "incomplete_results": false,
+ "items": [
+  {
+   "id": 1,
+   "node_id": "R_1",
+   "full_name": "a/one",
+   "stargazers_count": 10
+  },
+  {
+   "id": 2,
+   "node_id": "R_2",
+   "full_name": "b/two",
+   "stargazers_count": 5
+  }
+ ]
+}

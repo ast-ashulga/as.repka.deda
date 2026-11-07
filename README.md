@@ -14,3 +14,26 @@ uv run repka --help
 
 Settings live in `.config.yaml` (every key optional, every flag off by default). Agent and
 developer notes are in [CLAUDE.md](CLAUDE.md).
+
+## Telegram (digest delivery)
+
+Digests are sent from your own Telegram account (default chat `"me"` = Saved Messages) through
+`fast-mcp-telegram`. Nothing is sent unless `notify.enabled: true`.
+
+```bash
+# REPKA_TG_API_ID / REPKA_TG_API_HASH from https://my.telegram.org go into .env
+uv run repka notify login                       # one time: phone, code, 2FA
+uv run repka notify test "hello" --dry-run      # prints the message, sends nothing
+uv run repka notify test "hello"                # real send (needs notify.enabled: true)
+```
+
+The session in `.sessions/` is full access to the account: never commit or share it.
+
+```bash
+uv run repka digest                  # preview of the pending digest on stdout; sends and writes nothing
+uv run repka digest --slot 19:30     # preview as that slot of today
+uv run repka digest --send           # deliver the due slot and record it (needs notify.enabled: true)
+```
+
+A slot is sent at most once; missed slots are coalesced into the latest one, and a slot older than
+`digest.max_lateness` is skipped. An empty digest is never sent. A failed send is retried on the next run.

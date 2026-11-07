@@ -67,7 +67,7 @@ Status lives in the linked GitHub issue ([status mapping](AGENT-GUIDE.md#5-statu
 | ID | Issue | Task | Wave | Depends on | Size | Notes |
 |---|---|---|---|---|---|---|
 | [P1-T01](phase-1/M0-foundation.md#p1-t01-project-scaffold-config-and-agent-guide) | [#1](https://github.com/ast-ashulga/as.repka.deda/issues/1) | Project scaffold, config, CLAUDE.md | 1 | — | M | |
-| [P1-T02](phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python) | [#2](https://github.com/ast-ashulga/as.repka.deda/issues/2) | Spike: sqlite-vec under uv Python | 2 | T01 | S | go/no-go for vec index |
+| [P1-T02](phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python) | [#2](https://github.com/ast-ashulga/as.repka.deda/issues/2) | Spike: sqlite-vec under uv Python | 2 | T01 | S | Verdict: NO-GO for vec0 (extension loads; numpy ~20-28x faster at 5k-50k). See [spike](../spikes/T02-sqlite-vec.md) |
 | [P1-T03](phase-1/M0-foundation.md#p1-t03-spike-local-decider-runs-on-this-mac) | [#3](https://github.com/ast-ashulga/as.repka.deda/issues/3) | Spike: local decider on this Mac | 2 | T01 | M | needs ~6 GB disk; human may need to run downloads. **Done 2026-11-07**: d1-3B default (d1-2B fallback), Clef: GO. See [spike](../spikes/T03-deciders.md) |
 | [P1-T04](phase-1/M0-foundation.md#p1-t04-spike-ollama-embedder-returns-vectors) | [#4](https://github.com/ast-ashulga/as.repka.deda/issues/4) | Spike: Ollama embedder | 2 | T01 | S | needs Ollama installed |
 | [P1-T05](phase-1/M1-domain-profile.md#p1-t05-domain-schema-loader-and-listshow) | [#5](https://github.com/ast-ashulga/as.repka.deda/issues/5) | Domain schema, loader, `domain list/show` | 2 | T01 | S | |

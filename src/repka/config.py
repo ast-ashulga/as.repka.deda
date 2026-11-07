@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -372,3 +373,75 @@ _WORKER_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "HF_HOME", "HF_H
 def worker_env() -> dict[str, str]:
     """Minimal environment for decider/embedder subprocesses. Never contains tokens."""
     return {key: os.environ[key] for key in _WORKER_ENV_KEYS if key in os.environ}
+
+
+# --- Telegram (user account via fast-mcp-telegram) ---------------------------------------------
+
+_SESSION_NAME = "telegram"
+_SERVER_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR")
+
+
+@dataclass(frozen=True)
+class TelegramCredentials:
+    api_id: str
+    api_hash: str
+
+    def __repr__(self) -> str:  # never leak secrets into logs / tracebacks
+        return "TelegramCredentials(api_id=<hidden>, api_hash=<hidden>)"
+
+
+def telegram_credentials() -> TelegramCredentials:
+    """REPKA_TG_API_ID / REPKA_TG_API_HASH from .env. ConfigError names the missing keys, never values."""
+    env = read_env()
+    values = {key: env.get(key, "").strip() for key in ("REPKA_TG_API_ID", "REPKA_TG_API_HASH")}
+    missing = [key for key, value in values.items() if not value]
+    if missing:
+        raise ConfigError(
+            f"missing in .env: {', '.join(missing)} (Telegram app credentials from https://my.telegram.org)"
+        )
+    return TelegramCredentials(api_id=values["REPKA_TG_API_ID"], api_hash=values["REPKA_TG_API_HASH"])
+
+
+def session_dir() -> Path:
+    """<root>/.sessions, owner-only: the Telegram session inside is full access to the account."""
+    path = project_root() / ".sessions"
+    path.mkdir(mode=0o700, exist_ok=True)
+    path.chmod(0o700)
+    return path
+
+
+def session_file() -> Path:
+    return session_dir() / f"{_SESSION_NAME}.session"
+
+
+def require_session() -> Path:
+    path = session_file()
+    if not path.exists():
+        raise ConfigError(
+            f"no Telegram session at {path}; log in once (interactive: phone number, code, 2FA): "
+            "uv run repka notify login"
+        )
+    return path
+
+
+def telegram_server_env() -> dict[str, str]:
+    """Explicit, minimal environment for the fast-mcp-telegram subprocess. Never contains a GitHub token."""
+    creds = telegram_credentials()
+    env = {key: os.environ[key] for key in _SERVER_ENV_KEYS if key in os.environ}
+    env.update(
+        API_ID=creds.api_id,
+        API_HASH=creds.api_hash,
+        SESSION_DIR=str(session_dir()),
+        SESSION_NAME=_SESSION_NAME,
+        SERVER_MODE="stdio",
+        DO_NOT_TRACK="1",  # opt out of the server's anonymous telemetry
+    )
+    return env
+
+
+def venv_script(name: str) -> str:
+    """Path of a console script from this project's own virtualenv."""
+    path = Path(sys.executable).parent / name
+    if not path.exists():
+        raise ConfigError(f"{name} not found next to {sys.executable}; run `uv sync`")
+    return str(path)

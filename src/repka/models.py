@@ -87,3 +87,13 @@ class DigestItem:
     line_kind: str
     text_fields: dict[str, Any]
     rank_score: float
+
+
+@dataclass(frozen=True)
+class RepoMetrics:
+    repo_id: int
+    stars: int
+    stars_delta_1d: int | None  # None = no baseline snapshot yet (never lifetime stars)
+    stars_delta_7d: int | None
+    stars_delta_30d: int | None
+    velocity: float | None
