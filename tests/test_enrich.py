@@ -3,10 +3,11 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 
-from repka.config import CollectConfig
-from repka.github.client import GitHubError, RateLimited
+from repka.config import CollectConfig, GithubConfig
+from repka.github.client import GitHubClient, RateLimited
 from repka.github.enrich import build_enrich_query, enrich_repos, snapshot_from_node
 from repka.models import KeyFile, RepoHit, Snapshot
 from repka.store import repo
@@ -189,23 +190,30 @@ def test_first_key_file_sighting_emits_nothing(conn):
     assert repo.latest_key_file(conn, 100, "pyproject.toml") == ("oid-pyproject-1", ["httpx", "pydantic"])
 
 
-def test_failing_batch_keeps_earlier_batches_and_raises_github_error(conn):  # collect turns this into `partial`
-    add_repo(conn, 100)
-    add_repo(conn, 300)
+def test_poisonous_node_splits_the_batch_and_is_skipped(conn):
+    """GitHub answers a batch holding R_300 with an empty 200 (as it does when the query runs too long).
+    The batch is retried as halves; only R_300 is left without a snapshot and it is counted."""
+    ids = [100, 200, 300, 400, 500, 600]
+    for rid in ids:
+        add_repo(conn, rid)
+    nodes = {f"R_{rid}": node(rid) for rid in ids}
+    sizes: list[int] = []
 
-    class Flaky(FakeClient):
-        def graphql(self, query, variables):
-            if "stargazerCount" in query and variables["ids"] == ["R_300"]:
-                raise GitHubError("GraphQL returned a non-JSON body (HTTP 200)")
-            return super().graphql(query, variables)
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        asked = body["variables"]["ids"]
+        sizes.append(len(asked))
+        if "R_300" in asked:
+            return httpx.Response(200, content=b"")  # -> GitHubError: non-JSON body
+        return httpx.Response(200, json={"data": {"nodes": [nodes[i] for i in asked]}})
 
-    with pytest.raises(GitHubError):
-        run(Flaky(node(100), node(300)), conn, [100, 300], cfg=CollectConfig(enrich_batch=1))
-    assert repo.latest_snapshot(conn, 100) is not None  # finished batch kept
-    assert repo.latest_snapshot(conn, 300) is None  # failed batch left for the next run
+    client = GitHubClient("tok", GithubConfig(), transport=httpx.MockTransport(handler), max_server_retries=0)
+    stats = run(client, conn, ids, cfg=CollectConfig(enrich_batch=6))
 
-    stats = run(FakeClient(node(100), node(300)), conn, [100, 300], cfg=CollectConfig(enrich_batch=1))
-    assert stats.repos == 1 and repo.latest_snapshot(conn, 300) is not None  # only the missing repo is enriched
+    assert stats.repos == 5 and stats.skipped == 1
+    assert sizes == [6, 3, 1, 2, 1, 1, 3]  # 6 x, 3 x, [100] ok, 2 x, [200] ok, [300] x, [400 500 600] ok
+    assert repo.latest_snapshot(conn, 300) is None  # left for the next run
+    assert all(repo.latest_snapshot(conn, rid) for rid in ids if rid != 300)
 
 
 def test_batches_commit_and_call_count(conn):

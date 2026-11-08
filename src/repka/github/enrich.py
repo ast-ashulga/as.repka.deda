@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 
 NEW_RELEASE_MAX_AGE = timedelta(days=7)  # first sighting: only a release this fresh is an event
 RELEASE_WINDOW = timedelta(days=90)
+MAX_SKIPPED_IN_A_ROW = 3
 
 _NODE_FIELDS = """
       id
@@ -69,6 +70,7 @@ class EnrichStats:
     gone: int = 0
     events: int = 0
     slow_refreshed: int = 0
+    skipped: int = 0  # repos whose GraphQL node kept failing even alone: no snapshot, retried next run
 
 
 def build_enrich_query(key_files: Sequence[str]) -> tuple[str, dict[str, str]]:
@@ -319,12 +321,7 @@ def enrich_repos(
             rows[repo_id] = row
     ids = list(rows)
 
-    for start in range(0, len(ids), cfg.enrich_batch):
-        batch = ids[start : start + cfg.enrich_batch]
-        data = client.graphql(query, {"ids": [rows[r]["node_id"] for r in batch], **since})
-        nodes = data.get("nodes") or []
-        if len(nodes) != len(batch):
-            raise GitHubError(f"GraphQL returned {len(nodes)} nodes for {len(batch)} ids")
+    def _write_batch(batch: list[int], nodes: list) -> None:
         texts = _fetch_texts(client, _changed_blobs(conn, batch, nodes, aliases))
         try:
             for repo_id, node in zip(batch, nodes):
@@ -342,6 +339,44 @@ def enrich_repos(
                     conn.execute("RELEASE enrich_repo")
         finally:
             conn.commit()  # keep finished repos even if RateLimited interrupts the batch
+
+    failed_alone = 0  # consecutive single nodes that failed: an outage, not a poisonous repo
+
+    def fetch(part: list[int]) -> Iterator[tuple[list[int], list]]:
+        """Nodes for `part`; a failing call (5xx, timeout, empty body) is retried as two halves, recursively.
+
+        GitHub cuts a heavy `nodes(ids:)` query off after ~10 s (502 or an empty 200), so a batch near that
+        line fails at random. A node that fails even alone is skipped for this run (it has no snapshot, so
+        the next run retries it). RateLimited and AuthError are not retried here: they stop the run, and so
+        do MAX_SKIPPED_IN_A_ROW single-node failures in a row (GitHub is down, skipping would only burn calls)."""
+        nonlocal failed_alone
+        try:
+            data = client.graphql(query, {"ids": [rows[r]["node_id"] for r in part], **since})
+            nodes = data.get("nodes") or []
+            if len(nodes) != len(part):
+                raise GitHubError(f"GraphQL returned {len(nodes)} nodes for {len(part)} ids")
+        except RateLimited:
+            raise
+        except GitHubError as exc:
+            if len(part) == 1:
+                failed_alone += 1
+                if failed_alone >= MAX_SKIPPED_IN_A_ROW:
+                    raise
+                log.warning("enrich: repo %s (%s) skipped, its node keeps failing: %s",
+                            part[0], rows[part[0]]["full_name"], exc)
+                stats.skipped += 1
+                return
+            mid = len(part) // 2
+            log.warning("enrich: batch of %d failed (%s); retrying as %d + %d", len(part), exc, mid, len(part) - mid)
+            yield from fetch(part[:mid])
+            yield from fetch(part[mid:])
+        else:
+            failed_alone = 0
+            yield part, nodes
+
+    for start in range(0, len(ids), cfg.enrich_batch):
+        for batch, nodes in fetch(ids[start : start + cfg.enrich_batch]):
+            _write_batch(batch, nodes)
         if progress is not None:
             progress(min(start + cfg.enrich_batch, len(ids)), len(ids))
     return stats

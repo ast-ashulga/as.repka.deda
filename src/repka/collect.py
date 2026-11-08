@@ -163,10 +163,13 @@ def _collect_one(
             f"reached collect.max_repos_per_domain_scan ({limit}); run again to continue where it stopped",
         )
     scanned_at = iso(now) if window.end >= now.date() else iso(datetime.combine(window.end, time.min, UTC))
-    repo.set_domain_scanned(conn, d.id, scanned_at, "ok", profile_hash(d), int(d.scan_every.total_seconds()))
+    # skipped repos have no snapshot, so the next run enriches them again; the scan itself is complete
+    status = "partial" if enrich.skipped else "ok"
+    repo.set_domain_scanned(conn, d.id, scanned_at, status, profile_hash(d), int(d.scan_every.total_seconds()))
     repo.clear_cursors(conn, d.id)
     conn.commit()
-    return DomainReport(d.id, "ok", search, enrich)
+    error = f"{enrich.skipped} repos skipped: GraphQL kept failing for them, retried next run" if enrich.skipped else None
+    return DomainReport(d.id, status, search, enrich, error)
 
 
 def _rate_limit_message(exc: RateLimited) -> str:
