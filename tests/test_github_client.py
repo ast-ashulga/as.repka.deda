@@ -174,6 +174,13 @@ def test_5xx_retries_then_github_error():
     assert fake.sleeps == [1, 2, 4] and len(rec.requests) == 4
 
 
+def test_graphql_empty_body_is_github_error_not_json_error():
+    client, _, _ = make(httpx.Response(200, content=b""))
+    with pytest.raises(GitHubError, match="non-JSON body") as exc:
+        client.graphql("query { viewer { login } }", {})
+    assert not isinstance(exc.value, RateLimited)
+
+
 def test_transport_error_retries_then_succeeds():
     client, rec, fake = make(httpx.ConnectError("boom"), search_ok())
     assert client.search_total_count("q") == 1

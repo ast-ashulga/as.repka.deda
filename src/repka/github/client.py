@@ -152,7 +152,10 @@ class GitHubClient:
     def graphql(self, query: str, variables: dict) -> dict:
         resp = self._request("POST", "/graphql", json_body={"query": query, "variables": variables})
         self._expect_ok(resp, "POST /graphql")
-        body = resp.json()
+        try:
+            body = resp.json()
+        except ValueError:  # empty or non-JSON 2xx body: a GitHub failure for this call, not a crash
+            raise GitHubError(f"GraphQL returned a non-JSON body (HTTP {resp.status_code})") from None
         data = body.get("data")
         errors = body.get("errors") or []
         if data is None:
