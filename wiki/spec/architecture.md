@@ -61,8 +61,8 @@ as.repka.deda/
 │   ├── collect.py            # due_domains(), collect_domains() (+ collect_cli.py)
 │   ├── schedule.py           # launchd plist install/uninstall
 │   ├── pipeline.py           # run_pass() with injected boundaries (+ run_cli.py)
-│   └── dashboard_data.py     # Phase 2 read-only data layer
-├── dashboard/                # Phase 2 (Streamlit): app.py (home), pages/ (1_Domains.py: the only writer, via domain.schema; 2-3 are P2-T03/T04)
+│   └── dashboard_data.py     # Phase 2 data layer: read-only, except store_landscape (Recompute only)
+├── dashboard/                # Phase 2 (Streamlit): app.py (home), pages/ (1_Domains.py writes domain YAML via domain.schema only; 2_Landscape.py is the only DB writer, through its Recompute button; see §4 landscape_cache and ADR-008)
 ├── scripts/                  # spike scripts (not part of the package)
 ├── tests/                    # pytest; fixtures/github/*.json recorded responses
 ├── .state/  logs/            # gitignored
@@ -165,7 +165,7 @@ Created by migrations in `src/repka/store/migrations/`. All timestamps are UTC I
 | `verdicts` | **repo_id, domain_id, model, questions_hash**, input_hash, answers_json, accepted INT, decided_at | latest per key |
 | `embeddings` | **repo_id, model**, dim INT, input_hash, vector BLOB (float32 LE), created_at | source of truth for vectors |
 | ~~`vec_index_<model_slug>`~~ | not created: no `vec0` index (P1-T02 NO-GO); KNN is numpy brute force over `embeddings` | deviation, see [P1-T17](../plans/phase-1/M4-embeddings.md#p1-t17-vector-store-with-fallback) |
-| `landscape_cache` | **domain_id, model, method**, params_hash, computed_at, payload (JSON: repo_ids, x, y, cluster, terms) | migration 003 (P2-T03): cached UMAP projection + HDBSCAN clusters for the dashboard landscape map. `params_hash` = sha256 of the projected vectors' content (ids + bytes of the one model's matrix) and of method/seed/min_cluster_size, so changed vectors or parameters make the row stale. Written only by the dashboard's Recompute button (`landscape.py` is pure; `dashboard_data.compute_landscape/store_landscape` do the I/O) |
+| `landscape_cache` | **domain_id, model, method**, params_hash, computed_at, payload (JSON: repo_ids, x, y, cluster, terms) | migration 003 (P2-T03): cached UMAP projection + HDBSCAN clusters for the dashboard landscape map. `params_hash` = sha256 of the projected vectors' content (ids + bytes of the one model's matrix) and of method/seed/min_cluster_size, so changed vectors or parameters make the row stale. Written only by the dashboard's Landscape **Recompute** button (`landscape.py` is pure; `dashboard_data.compute_landscape` reads on a read-only connection, then Recompute opens a writable connection, runs `migrate()`, and calls `store_landscape`, one upsert that commits; nothing is written when there are no embeddings). `migrate()` is not race-safe against a concurrent `repka run` migration; see ADR-008 amendment |
 | `search_cursor` | **domain_id, query_key, slice**, completed_at, total_count, capped INT | resume after rate limit |
 | `http_cache` | **url**, etag, body, fetched_at | conditional REST requests |
 | `digests` | **id** INT AUTO, slot TEXT, local_date TEXT, status `sent`/`empty`/`skipped`/`failed`/`preview`, item_count, sent_at; UNIQUE(slot, local_date) | `preview` rows are never written (preview changes no state) |
@@ -230,6 +230,6 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | `repka schedule install [--dry-run] [--interval 1h]\|uninstall\|status` | one launchd user agent `com.repka.run` (`~/Library/LaunchAgents/com.repka.run.plist`) running `uv run --project <root> repka run` every interval; no secrets in the plist, only `EnvironmentVariables` `PATH` (current PATH + the dir of `gh`, since launchd's default lacks it) and `REPKA_HOME` when set; `logs/launchd.log`. `install` replaces an existing agent (bootout, then bootstrap); `uninstall` and re-install are idempotent; `install` warns (exit 0) when notify or run.send is off. Only these commands touch launchd (never automatic); exit 1 when launchctl refuses | P1-T23 |
 | `repka db migrate` | create or upgrade `.state/repka.db` (idempotent) | P1-T09 |
 | `repka db stats` | row counts, last runs | P1-T09 |
-| `repka dashboard [--port 8501]` | Streamlit dashboard (ADR-008) on `127.0.0.1` only, read-only; needs `uv sync --group dashboard` (exit 2 with that hint otherwise) | P2-T01 |
+| `repka dashboard [--port 8501]` | Streamlit dashboard (ADR-008) on `127.0.0.1` only, read-only except domain YAML writes (Domains page) and the Landscape Recompute (`landscape_cache` upsert, after `migrate()`); needs `uv sync --group dashboard` (exit 2 with that hint otherwise) | P2-T01 |
 
 Exit codes: `0` ok; `1` runtime failure (worker crash, network after retries); `2` configuration/usage error (`ConfigError`, `ValueError`). stdout = results (`--json` where offered); stderr = progress and logs. Logs also go to `logs/repka.log` (rotating, 5 × 1 MB).
