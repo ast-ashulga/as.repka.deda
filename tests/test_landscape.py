@@ -57,6 +57,13 @@ def test_label_clusters_names_clusters_by_their_own_terms():
     assert terms[0][0] == "mcp" and terms[1][0] == "rag" and -1 not in terms
 
 
+def test_label_clusters_survives_a_null_description():
+    import pandas as pd
+
+    frame = pd.DataFrame({"cluster": [0, 0], "topics": [["mcp"], ["mcp"]], "description": ["an mcp server", None]})
+    assert landscape.label_clusters(frame)[0][0] == "mcp"
+
+
 @pytest.fixture
 def conn(tmp_path):
     conn = make_db(tmp_path / "repka.db")

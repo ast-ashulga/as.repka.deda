@@ -53,7 +53,8 @@ def cluster(points: np.ndarray, min_cluster_size: int = 5) -> np.ndarray:
 
 
 def _terms(topics: Sequence[str] | None, description: str | None) -> set[str]:
-    words = {w for w in re.findall(r"[a-z][a-z0-9+#.-]{2,}", (description or "").lower()) if w not in _STOPWORDS}
+    text = description if isinstance(description, str) else ""  # a NULL description reaches here as NaN
+    words = {w for w in re.findall(r"[a-z][a-z0-9+#.-]{2,}", text.lower()) if w not in _STOPWORDS}
     return words | {t.lower() for t in (topics or ())}
 
 
