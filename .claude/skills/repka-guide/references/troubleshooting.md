@@ -18,6 +18,8 @@ at the end of `uv run repka run`, then `logs/repka.log` (`logs/launchd.log` for 
 | `Ollama is not running` | `ollama serve` in a terminal, then `ollama pull nomic-embed-text`. Embedding failures make a run `partial`; digests still go out |
 | Digest not delivered | Needs `notify.enabled: true` and (`run.send: true` or `--send`), plus a Telegram login (`! uv run repka notify login`). `uv run repka doctor --send` lists what is missing. A failed send keeps its slot open and is retried on the next run |
 | `--send` fails with exit 2 | `notify.enabled` is false; sending needs it |
+| `repka dashboard` exits 2 ("streamlit is not installed") | `uv sync --group dashboard` (plain `uv sync` skips it) |
+| Landscape empty ("No embeddings" / "not computed") | `embed.enabled: true`, then `uv run repka embed` (needs Ollama), then Recompute on the page |
 | "another repka run is in progress" | A previous run (or launchd) holds `.state/run.lock`; nothing was done and the exit code is 0. Check `pgrep -fl "repka run"`. If nothing is running the lock is stale-free (the OS releases it when a process dies), so just retry |
 | Scheduled runs do nothing | `uv run repka schedule status` (loaded? last exit code), `logs/launchd.log`. launchd's PATH lacks `/opt/homebrew/bin`, so after moving `gh`/`uv` or changing `REPKA_HOME` re-run `repka schedule install` (needs the user's yes). The agent does not run at login, only on its interval |
 | Config error at startup (exit 2) | The message names the dotted key; fix that key. Unknown keys and wrong types are rejected |

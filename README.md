@@ -7,7 +7,7 @@ calls and the Telegram message stays on your Mac.
 
 Pipeline: **collect** (GitHub search + GraphQL snapshots) -> **triage** (local decider model) ->
 **embed** (local Ollama, for "similar repos") -> **digest** (Telegram). `repka run` does one pass;
-launchd runs it hourly.
+launchd runs it hourly. An optional local dashboard shows the same data in a browser.
 
 ## Requirements
 
@@ -16,6 +16,7 @@ launchd runs it hourly.
   A fine-grained token with read-only public access is enough.
 - For triage: about 6 GB of disk for the decider model (`d1-3B`) and its environment.
 - Optional: [Ollama](https://ollama.com) with `nomic-embed-text` (embeddings, `repka similar`).
+- Optional: the dashboard's dependencies, `uv sync --group dashboard` (plain `uv sync` does not install them).
 - Optional: a Telegram account and API credentials from https://my.telegram.org (digest delivery).
 
 ## Quick start (humans)
@@ -60,6 +61,8 @@ uv run repka run --send              # deliver the due slot once; run it again: 
 uv run repka schedule install        # hourly launchd agent (set notify.enabled and run.send to true first)
 ```
 
+Optional, once data is flowing: a browser view of the same data, see [Dashboard](#dashboard).
+
 ## Quick start (AI agents)
 
 Everything is non-interactive except `domain new` and `notify login`. stdout carries results, stderr carries
@@ -72,6 +75,9 @@ uv run repka domain list; uv run repka domain show <id>; uv run repka domain pla
 uv run repka run --json              # full report (stages, errors, hints, digest text) on stdout
 uv run repka db stats                # row counts and the last runs
 ```
+
+- The dashboard is for humans. Do not launch it unless asked: it is a long-running server (`uv run repka dashboard`).
+  If it must run, start it in the background with a scratch `REPKA_HOME`. `doctor` and `--json` output are the agent interfaces.
 
 - The `domain-profile` skill (`.claude/skills/domain-profile/SKILL.md`) interviews the user, researches GitHub
   read-only and writes a validated `domains/<id>.yaml`. It may write only that file.
@@ -225,17 +231,38 @@ uv run repka schedule uninstall
 
 The plist holds no secrets: only `PATH` (so launchd can find `gh`; launchd's default PATH lacks `/opt/homebrew/bin`) and, when set at install time, `REPKA_HOME`. Re-run `schedule install` after moving `gh`/`uv` or changing `REPKA_HOME`. Logs go to `logs/launchd.log`.
 
-## Dashboard (optional, read-only)
+## Dashboard (optional)
 
-A local Streamlit view of the same database: domains, last runs and last digests. It needs the optional
-`dashboard` dependency group, which plain `uv sync` does not install.
+A local Streamlit view of the same database, for people. It needs the optional `dashboard` dependency group.
 
 ```bash
-uv sync --group dashboard
-uv run repka dashboard              # http://127.0.0.1:8501 (--port to change); Ctrl-C stops it
+uv sync --group dashboard            # one time
+uv run repka dashboard               # http://127.0.0.1:8501 (--port to change); Ctrl-C stops it
 ```
 
-It binds to `127.0.0.1` only and sends nothing anywhere. It opens the database read-only, with two exceptions: the Landscape page's Recompute button stores its 2-D map in the `landscape_cache` table (needs `embed.enabled` and `repka embed` first), and the Domains page creates, edits, enables and deletes `domains/<id>.yaml` files, with the same checks as `repka domain new`; new domains start disabled. The Analytics page shows star growth, velocity, top movers and dependency changes for one domain.
+It binds to `127.0.0.1` only and sends nothing anywhere. It runs in the foreground until you stop it. Until the
+database exists, the pages say to run `repka db migrate`, then `repka run`.
+
+| Page | Shows | Notes |
+|---|---|---|
+| Home | Domains overview, last runs, last digests | Invalid domain files are reported at the top |
+| Domains | Domains with scan status; add, edit, enable/disable, delete | Same checks as `repka domain new`; new domains start disabled unless ticked; shows the GitHub queries |
+| Landscape | 2-D map of a domain's accepted repos, clusters with top terms | Needs `embed.enabled: true` and `repka embed` first; size = stars, colour = cluster, symbol = fork or original |
+| Analytics | Stars over time, 7-day velocity, top movers, dependency timeline and popularity | Gaps in snapshots are shown as gaps |
+
+The dashboard opens the database read-only (it works while `repka run` writes), with two exceptions:
+
+- Landscape's **Recompute** stores the map in the `landscape_cache` table.
+- The Domains page creates, edits and deletes `domains/<id>.yaml`. Deleting removes only the file: collected repos,
+  verdicts and runs stay in the database, and there is no purge option.
+
+Troubleshooting:
+
+- `repka dashboard` exits 2 ("streamlit is not installed"): run `uv sync --group dashboard`.
+- Landscape shows "No embeddings" or "not computed": set `embed.enabled: true`, run `uv run repka embed` (needs Ollama),
+  then press Recompute. If forks are missing, the domain's `fork_policy` is `exclude`.
+- Star deltas show "n/a": a 7-day delta needs a snapshot about a week old, so it fills in after about a week of
+  scheduled `repka run`.
 
 ## Troubleshooting
 
@@ -253,6 +280,8 @@ Start with `uv run repka doctor` and the `hints:` at the end of `uv run repka ru
 | Digest not delivered | Needs `notify.enabled: true` and `run.send: true` (or `--send`), plus `repka notify login`. `repka doctor --send` lists what is missing. A failed send keeps its slot open for the next run. |
 | "another repka run is in progress" | A previous run (or launchd) holds `.state/run.lock`; nothing is done and the exit code is 0. |
 | Where are the logs? | `logs/repka.log` (rotating), `logs/launchd.log` for scheduled runs, `repka -v ...` prints DEBUG on stderr. |
+| `repka dashboard` exits 2 ("streamlit is not installed") | The dashboard group is missing: `uv sync --group dashboard`. |
+| Landscape page is empty ("No embeddings" / "not computed") | Set `embed.enabled: true`, run `uv run repka embed` (needs Ollama), then press Recompute. |
 
 ## Known limitations
 

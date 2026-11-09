@@ -12,7 +12,7 @@ Full list with comments: `wiki/spec/architecture.md` section 3.
 | `github.search_per_minute` | 25 | client throttle for search (GitHub max 30); do not raise above 30 |
 | `github.per_page` | 100 | page size |
 | `github.timeout_s` | 30 | HTTP timeout |
-| `collect.first_window` | 90d (README says 365d: check the file) | backfill window on a domain's first scan; the first scan is a silent baseline. Use `7d` for a first try |
+| `collect.first_window` | 365d (code default; `.config.yaml` may override it, e.g. 90d) | backfill window on a domain's first scan; the first scan is a silent baseline. Use `7d` for a first try |
 | `collect.overlap` | 1d | incremental scans use `pushed >= last_scan - overlap` |
 | `collect.max_repos_per_domain_scan` | 3000 | cap per scan; hitting it makes the run `partial` and the next run continues |
 | `collect.enrich_batch` | 25 | GraphQL nodes per query |
@@ -75,3 +75,9 @@ Inspect with `uv run repka domain list|show <id>|plan <id>`.
 ## Paths and environment
 
 `REPKA_HOME=<dir>` relocates `.config.yaml`, `.env`, `domains/`, `deciders/`, `.state/` (SQLite `repka.db`, `run.lock`) and `logs/`. launchd agent: `~/Library/LaunchAgents/com.repka.run.plist`, logs in `logs/launchd.log`.
+
+## Dashboard
+
+No config keys are needed. `repka dashboard` takes one flag, `--port` (default 8501), and binds `127.0.0.1` only.
+It reads the database and domain files under `REPKA_HOME` like every other command. The only dashboard setting in
+`.config.yaml` is `embed.model`, which picks the model shown on the Landscape page.

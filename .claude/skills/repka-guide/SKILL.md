@@ -1,6 +1,6 @@
 ---
 name: repka-guide
-description: User guide and interactive operator for the repka CLI (repka deda, the local GitHub-monitoring tool with Telegram digests). Use whenever the user wants to set up, configure, reconfigure, launch, run, schedule, pause, stop or troubleshoot repka, asks "how do I use repka", "how do I start/stop it", "why is my digest empty", wants to change digest times, domains, Telegram target, triage/embedding settings or the launchd schedule, or asks what state repka is in. Interviews the user about needs and intent, then makes the changes and runs the commands with their approval. Not for defining a new monitoring domain from scratch (use domain-profile for that) and not for developing repka's code.
+description: User guide and interactive operator for the repka CLI (repka deda, the local GitHub-monitoring tool with Telegram digests). Use whenever the user wants to set up, configure, reconfigure, launch, run, schedule, pause, stop or troubleshoot repka, open or launch the local dashboard, asks "how do I use repka", "how do I start/stop it", "why is my digest empty", wants to change digest times, domains, Telegram target, triage/embedding settings or the launchd schedule, or asks what state repka is in. Interviews the user about needs and intent, then makes the changes and runs the commands with their approval. Not for defining a new monitoring domain from scratch (use domain-profile for that) and not for developing repka's code.
 ---
 
 # repka guide
@@ -16,7 +16,7 @@ Talk to the user in their language. Keep answers short; show state as a compact 
 3. **Never read or print secrets:** `.env`, `.sessions/`. To know whether credentials exist, rely on `repka doctor`, which reports it without exposing values. If the user must put a secret in `.env`, tell them which variable to set and let them edit the file themselves.
 4. **Feature flags default to `false`** in this project. When proposing a fresh setup, enable only what the user asked for. When the user turns something off, set it to `false` (do not delete the key).
 5. **Do not commit** config changes. `.config.yaml` is tracked, so flag flips show up in `git status`; mention that, and leave committing to the user.
-6. **Interactive commands need the user's terminal.** `repka notify login` and `repka domain new` prompt for input. Ask the user to run them with the `!` prefix (for example `! uv run repka notify login`) so the output lands in the session.
+6. **Interactive commands need the user's terminal.** `repka notify login` and `repka domain new` prompt for input, and `repka dashboard` blocks as a server. Ask the user to run them with the `!` prefix (for example `! uv run repka notify login`) so the output lands in the session.
 7. Run everything from the repo root with `uv run repka ...`. To rehearse without touching the real setup, use a scratch home: `REPKA_HOME=/some/dir uv run repka ...`.
 
 ## Step 1: check the current state
@@ -42,12 +42,13 @@ If their message already says what they want ("stop it", "change digest to 9:00"
 - **Change settings** (domains, digest times, Telegram target, triage/embeddings, schedule) → playbook B
 - **Run it now** (preview or real send) → playbook C
 - **Pause or stop it** → playbook D
+- **Open the dashboard** → playbook F
 - **Something is wrong / empty digest / error** → playbook E, and `references/troubleshooting.md`
 - **Just explain how it works** → answer from "How it works" below, no changes
 
 ## How it works (for explanations)
 
-`repka run` is one pass: **collect** (GitHub search plus GraphQL snapshots for domains that are due) → **triage** (local decider model decides relevance) → **embed** (local Ollama, powers `repka similar`) → **digest** (built at slots 08:30 and 19:30, sent via Telegram only if sending is on). A failing stage never blocks the digest; the next run continues. Two runs never overlap. The first scan of a domain is a silent baseline: no "new repo" events, so the first digest is empty on purpose. Nothing runs by itself until `repka schedule install`, and that agent runs `repka run` hourly.
+`repka run` is one pass: **collect** (GitHub search plus GraphQL snapshots for domains that are due) → **triage** (local decider model decides relevance) → **embed** (local Ollama, powers `repka similar`) → **digest** (built at slots 08:30 and 19:30, sent via Telegram only if sending is on). A failing stage never blocks the digest; the next run continues. Two runs never overlap. The first scan of a domain is a silent baseline: no "new repo" events, so the first digest is empty on purpose. Nothing runs by itself until `repka schedule install`, and that agent runs `repka run` hourly. The optional dashboard (`repka dashboard`, playbook F) is a read-only browser view of the same database; it cannot send or schedule anything.
 
 ## Playbook A: set up from scratch
 
@@ -120,6 +121,18 @@ Turning things off needs no extra consent beyond the user's request. To resume l
 ## Playbook E: troubleshoot
 
 Run `uv run repka doctor` first, then look at the `hints:` of the last `uv run repka run`, then `logs/repka.log` (`logs/launchd.log` for scheduled runs); `uv run repka -v <command>` prints DEBUG on stderr. The common causes (empty digest, rate limits, worker crashes, Ollama down, nothing delivered, "another repka run is in progress") are in `references/troubleshooting.md`. Fix what `doctor` names, one thing at a time, and re-check after each fix.
+
+## Playbook F: dashboard
+
+1. **Check the data:** `uv run repka db stats`. If there is no database yet (the dashboard says so), run `uv run repka db migrate`, then `uv run repka run` (a preview; nothing is sent). The first scan is an empty baseline, so the pages stay thin for a while.
+2. **Dependencies (once):** `uv sync --group dashboard`. Plain `uv sync` does not install them, and `repka dashboard` exits 2 without them.
+3. **Launch:** `repka dashboard` is a long-running foreground server on http://127.0.0.1:8501 (`--port N` to change; Ctrl-C stops it). Ask the user to run `! uv run repka dashboard` themselves. Start it in the background only if they ask, and stop it afterwards (`pgrep -fl "streamlit run"`, then `kill <pid>`).
+4. **What each page needs:**
+   - Home and Analytics: a database. Analytics star deltas show "n/a" until a snapshot about a week old exists.
+   - Domains: works from the domain files alone; scan status needs the database.
+   - Landscape: `embed.enabled: true`, then `uv run repka embed` (needs Ollama). If the domain's `fork_policy` is `exclude`, the page says so.
+5. **Writes (only two):** Landscape's **Recompute** stores the map in the `landscape_cache` table. The Domains page creates, edits and deletes `domains/<id>.yaml`; deleting removes only the file (collected data stays, no purge option). After page edits, tell the user which files changed (`git status`) and leave committing to them (ground rule 5).
+6. **Domain changes are the user's call:** new domains start disabled unless the user ticks the box; enable one only when they say so. Ground rule 2 is unaffected: the dashboard cannot send or install a schedule.
 
 ## Reference files
 
