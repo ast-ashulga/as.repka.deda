@@ -1,4 +1,5 @@
 import importlib
+import importlib.util
 import pkgutil
 import sys
 from pathlib import Path
@@ -18,6 +19,9 @@ def test_all_python_files_compile():
 
 def test_all_repka_modules_import():
     for module in pkgutil.walk_packages(repka.__path__, "repka."):
+        # the dashboard data layer needs the optional `dashboard` group (pandas)
+        if module.name == "repka.dashboard_data" and importlib.util.find_spec("pandas") is None:
+            continue
         importlib.import_module(module.name)
     # model runtimes live in the decider virtualenvs, never in the main package
     assert not {"torch", "transformers", "mlx"} & set(sys.modules)

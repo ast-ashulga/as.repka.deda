@@ -62,7 +62,7 @@ as.repka.deda/
 │   ├── schedule.py           # launchd plist install/uninstall
 │   ├── pipeline.py           # run_pass() with injected boundaries (+ run_cli.py)
 │   └── dashboard_data.py     # Phase 2 read-only data layer
-├── dashboard/                # Phase 2 (Streamlit)
+├── dashboard/                # Phase 2 (Streamlit): app.py (home), pages/ (P2-T02..T04)
 ├── scripts/                  # spike scripts (not part of the package)
 ├── tests/                    # pytest; fixtures/github/*.json recorded responses
 ├── .state/  logs/            # gitignored
@@ -229,5 +229,6 @@ Frozen dataclasses shared across modules (fields listed; types in the owning tas
 | `repka schedule install [--dry-run] [--interval 1h]\|uninstall\|status` | one launchd user agent `com.repka.run` (`~/Library/LaunchAgents/com.repka.run.plist`) running `uv run --project <root> repka run` every interval; no secrets in the plist, only `EnvironmentVariables` `PATH` (current PATH + the dir of `gh`, since launchd's default lacks it) and `REPKA_HOME` when set; `logs/launchd.log`. `install` replaces an existing agent (bootout, then bootstrap); `uninstall` and re-install are idempotent; `install` warns (exit 0) when notify or run.send is off. Only these commands touch launchd (never automatic); exit 1 when launchctl refuses | P1-T23 |
 | `repka db migrate` | create or upgrade `.state/repka.db` (idempotent) | P1-T09 |
 | `repka db stats` | row counts, last runs | P1-T09 |
+| `repka dashboard [--port 8501]` | Streamlit dashboard (ADR-008) on `127.0.0.1` only, read-only; needs `uv sync --group dashboard` (exit 2 with that hint otherwise) | P2-T01 |
 
 Exit codes: `0` ok; `1` runtime failure (worker crash, network after retries); `2` configuration/usage error (`ConfigError`, `ValueError`). stdout = results (`--json` where offered); stderr = progress and logs. Logs also go to `logs/repka.log` (rotating, 5 × 1 MB).

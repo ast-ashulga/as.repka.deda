@@ -15,6 +15,7 @@ Decision: Streamlit multipage app, Plotly, umap-learn, scikit-learn (HDBSCAN, t-
 
 - **Inputs:** `store.db.connect(readonly=True)`, `store.metrics`, `store.vectors.load_matrix`, `domain.schema.load_domains`.
 - **Outputs:** `dashboard/app.py` (home: domains, last runs, last digests), `src/repka/dashboard_data.py` with pure functions returning pandas DataFrames (`domains_overview()`, `repos_frame(domain_id, accepted_only)`, `metrics_history(repo_ids)`, `stack_history(repo_id)`), `repka dashboard [--port 8501]` command.
+- **Interfaces (as built):** `dashboard_data.domains_overview(conn, domains)`, `repos_frame(conn, domain_id, accepted_only=False, now=None)`, `metrics_history(conn, repo_ids)`, `stack_history(conn, repo_id)`, plus `recent_runs(conn, limit)` and `recent_digests(conn, limit)` for the home page. All take a connection first and return DataFrames. `dashboard_cli.register` adds `repka dashboard`. Dependencies: `dashboard` dependency group (streamlit, plotly, pandas, umap-learn, scikit-learn); tests needing pandas use `pytest.importorskip`, so `uv run pytest -q` runs them only in an env with the group.
 - **Acceptance criteria:**
   - Data functions unit-tested on a fixture DB; pages contain no SQL.
   - Server binds to `127.0.0.1`; the dashboard opens the DB read-only (writes are only possible through P2-T02's domain functions).

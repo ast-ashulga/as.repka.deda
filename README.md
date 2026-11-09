@@ -225,6 +225,18 @@ uv run repka schedule uninstall
 
 The plist holds no secrets: only `PATH` (so launchd can find `gh`; launchd's default PATH lacks `/opt/homebrew/bin`) and, when set at install time, `REPKA_HOME`. Re-run `schedule install` after moving `gh`/`uv` or changing `REPKA_HOME`. Logs go to `logs/launchd.log`.
 
+## Dashboard (optional, read-only)
+
+A local Streamlit view of the same database: domains, last runs and last digests. It needs the optional
+`dashboard` dependency group, which plain `uv sync` does not install.
+
+```bash
+uv sync --group dashboard
+uv run repka dashboard              # http://127.0.0.1:8501 (--port to change); Ctrl-C stops it
+```
+
+It binds to `127.0.0.1` only, opens the database read-only and sends nothing anywhere.
+
 ## Troubleshooting
 
 Start with `uv run repka doctor` and the `hints:` at the end of `uv run repka run`.
