@@ -92,7 +92,7 @@ forks_excluded = domain.search.fork_policy == "exclude"
 if forks_excluded:
     st.info(
         "This domain's fork policy is `exclude`, so no forks were collected and none appear on the map. "
-        "Change `fork_policy` to `include` on the **Domains** page (sidebar), then run a scan, to see niche forks."
+        "Change `fork_policy` to `include` on the [Domains page](/Domains) (domain editor), then run a scan, to see niche forks."
     )
 
 col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
