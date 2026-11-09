@@ -128,7 +128,7 @@ try:
                                 list(series_colors), list(series_colors.values()), theme),
                 )
             else:  # no delta yet: an empty chart would have no scale
-                right.info("Not enough snapshots yet: deltas appear after the second scan.")
+                right.info("Not enough history yet: a 7-day star delta needs a snapshot about a week old (keep `repka run` scheduled).")
 
         # (b) velocity ranking with a per-repo trend
         st.subheader("Velocity")

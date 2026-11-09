@@ -145,4 +145,5 @@ def test_single_snapshot_repo_shows_not_enough_snapshots_message(tmp_path, monke
 
     at = AppTest.from_file(str(PAGE), default_timeout=60).run()
     assert not at.exception
-    assert any(i.value == "Not enough snapshots yet: deltas appear after the second scan." for i in at.info)
+    expected = "Not enough history yet: a 7-day star delta needs a snapshot about a week old (keep `repka run` scheduled)."
+    assert any(i.value == expected for i in at.info)
