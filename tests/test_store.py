@@ -142,3 +142,20 @@ def test_db_stats_cli(home, capsys):
     out = capsys.readouterr().out
     assert "repos 0" in out
     assert (home / ".state" / "repka.db").exists()
+
+
+def test_migrate_is_race_safe_with_stale_version_read(tmp_path, monkeypatch):
+    path = tmp_path / "race.db"
+    first, second = connect(path), connect(path)
+    final = migrate(first)
+    real, calls = db._current_version, []
+
+    def stale_once(conn):  # the loser read the version before the winner migrated
+        calls.append(1)
+        return 0 if len(calls) == 1 else real(conn)
+
+    monkeypatch.setattr(db, "_current_version", stale_once)
+    assert migrate(second) == final
+    assert real(second) == final
+    assert not second.in_transaction
+    assert second.autocommit == sqlite3.LEGACY_TRANSACTION_CONTROL

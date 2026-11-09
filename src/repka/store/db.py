@@ -54,19 +54,31 @@ def _current_version(conn: sqlite3.Connection) -> int:
 def migrate(conn: sqlite3.Connection) -> int:
     """Apply every migration above the stored version, each in its own transaction.
 
-    Each migration file inserts its own schema_version row. Returns the new version.
+    Each migration file inserts its own schema_version row, so the version bump commits
+    atomically with the schema change. The write lock is taken first (BEGIN IMMEDIATE) and
+    the version is re-read under it, so a concurrent migrator that got there first makes
+    this step a no-op instead of a failure. Returns the new version.
     """
     conn.commit()
     current = _current_version(conn)
-    for number, sql in _migrations():
-        if number <= current:
-            continue
-        try:
-            conn.executescript(f"BEGIN;\n{sql}\nCOMMIT;")
-        except sqlite3.Error:
-            conn.rollback()
-            raise
-        current = number
+    previous = conn.autocommit
+    conn.autocommit = True  # manual transactions: executescript must not release the lock
+    try:
+        for number, sql in _migrations():
+            if number <= current:
+                continue
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if _current_version(conn) < number:
+                    conn.executescript(sql)
+                conn.execute("COMMIT")
+            except sqlite3.Error:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+            current = number
+    finally:
+        conn.autocommit = previous
     return current
 
 
