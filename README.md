@@ -235,7 +235,7 @@ uv sync --group dashboard
 uv run repka dashboard              # http://127.0.0.1:8501 (--port to change); Ctrl-C stops it
 ```
 
-It binds to `127.0.0.1` only, opens the database read-only and sends nothing anywhere.
+It binds to `127.0.0.1` only, opens the database read-only and sends nothing anywhere. The one write is the Landscape page's Recompute button, which stores its 2-D map in the `landscape_cache` table (needs `embed.enabled` and `repka embed` first).
 
 ## Troubleshooting
 

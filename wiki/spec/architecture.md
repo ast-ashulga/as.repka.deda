@@ -165,6 +165,7 @@ Created by migrations in `src/repka/store/migrations/`. All timestamps are UTC I
 | `verdicts` | **repo_id, domain_id, model, questions_hash**, input_hash, answers_json, accepted INT, decided_at | latest per key |
 | `embeddings` | **repo_id, model**, dim INT, input_hash, vector BLOB (float32 LE), created_at | source of truth for vectors |
 | ~~`vec_index_<model_slug>`~~ | not created: no `vec0` index (P1-T02 NO-GO); KNN is numpy brute force over `embeddings` | deviation, see [P1-T17](../plans/phase-1/M4-embeddings.md#p1-t17-vector-store-with-fallback) |
+| `landscape_cache` | **domain_id, model, method**, params_hash, computed_at, payload (JSON: repo_ids, x, y, cluster, terms) | migration 003 (P2-T03): cached UMAP projection + HDBSCAN clusters for the dashboard landscape map. `params_hash` = sha256 of the projected vectors' content (ids + bytes of the one model's matrix) and of method/seed/min_cluster_size, so changed vectors or parameters make the row stale. Written only by the dashboard's Recompute button (`landscape.py` is pure; `dashboard_data.compute_landscape/store_landscape` do the I/O) |
 | `search_cursor` | **domain_id, query_key, slice**, completed_at, total_count, capped INT | resume after rate limit |
 | `http_cache` | **url**, etag, body, fetched_at | conditional REST requests |
 | `digests` | **id** INT AUTO, slot TEXT, local_date TEXT, status `sent`/`empty`/`skipped`/`failed`/`preview`, item_count, sent_at; UNIQUE(slot, local_date) | `preview` rows are never written (preview changes no state) |

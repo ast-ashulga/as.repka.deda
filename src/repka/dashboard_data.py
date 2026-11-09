@@ -176,3 +176,130 @@ def recent_digests(conn: sqlite3.Connection, limit: int = 10) -> pd.DataFrame:
 
 
 _DIGEST_COLUMNS = ["id", "slot", "local_date", "status", "item_count", "sent_at"]
+
+
+# --- Landscape map (P2-T03) --------------------------------------------------------------------------
+# The UMAP result is cached in `landscape_cache` (migration 003). Reading is read-only; computing reads
+# vectors, storing is the dashboard's one write besides domain files (see `store_landscape`).
+
+LANDSCAPE_METHOD = "umap"
+LANDSCAPE_SEED = 42
+LANDSCAPE_MIN_CLUSTER = 5
+
+
+def _landscape_inputs(conn: sqlite3.Connection, domain_id: str, model: str):
+    """Repo ids and the L2-normalized matrix of the domain's repos for ONE embedding model."""
+    from repka.store.vectors import load_matrix
+
+    return load_matrix(conn, model, [r["repo_id"] for r in repo.repos_for_domain(conn, domain_id)])
+
+
+def compute_landscape(
+    conn: sqlite3.Connection,
+    domain_id: str,
+    model: str,
+    method: str = LANDSCAPE_METHOD,
+    seed: int = LANDSCAPE_SEED,
+    min_cluster_size: int = LANDSCAPE_MIN_CLUSTER,
+) -> dict[str, Any] | None:
+    """Project and cluster the domain's vectors; returns the cache row, or None without embeddings."""
+    from repka import landscape
+
+    ids, matrix = _landscape_inputs(conn, domain_id, model)
+    if not ids:
+        return None
+    points = landscape.project(matrix, method, seed)
+    labels = landscape.cluster(points, min_cluster_size)
+    by_id = {r["repo_id"]: r for r in repo.repos_for_domain(conn, domain_id)}
+    labelled = pd.DataFrame(
+        {
+            "cluster": labels,
+            "topics": [json.loads(by_id[i]["topics_json"] or "[]") for i in ids],
+            "description": [by_id[i]["description"] for i in ids],
+        }
+    )
+    payload = {
+        "repo_ids": ids,
+        "x": points[:, 0].round(5).tolist(),
+        "y": points[:, 1].round(5).tolist(),
+        "cluster": labels.tolist(),
+        "terms": {str(k): v for k, v in landscape.label_clusters(labelled).items()},
+    }
+    return {
+        "domain_id": domain_id,
+        "model": model,
+        "method": method,
+        "params_hash": landscape.params_hash(ids, matrix, method, seed, min_cluster_size),
+        "payload": json.dumps(payload),
+    }
+
+
+def store_landscape(conn: sqlite3.Connection, row: dict[str, Any]) -> None:
+    """Upsert a `compute_landscape` row. Needs a writable, migrated connection; commits."""
+    conn.execute(
+        """INSERT INTO landscape_cache (domain_id, model, method, params_hash, computed_at, payload)
+           VALUES (:domain_id, :model, :method, :params_hash, :computed_at, :payload)
+           ON CONFLICT (domain_id, model, method) DO UPDATE SET
+               params_hash = excluded.params_hash, computed_at = excluded.computed_at,
+               payload = excluded.payload""",
+        {**row, "computed_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")},
+    )
+    conn.commit()
+
+
+def _latest_kinds(conn: sqlite3.Connection, domain_id: str) -> dict[int, str]:
+    """`kind` answer of each repo's latest verdict in the domain."""
+    kinds: dict[int, str] = {}
+    for r in conn.execute(
+        "SELECT repo_id, answers_json FROM verdicts WHERE domain_id = ? ORDER BY decided_at, rowid", (domain_id,)
+    ):
+        try:
+            kinds[r["repo_id"]] = json.loads(r["answers_json"])["kind"]["pred"]
+        except (TypeError, KeyError, ValueError):
+            kinds.pop(r["repo_id"], None)
+    return kinds
+
+
+def landscape_frame(
+    conn: sqlite3.Connection,
+    domain_id: str,
+    model: str,
+    method: str = LANDSCAPE_METHOD,
+    seed: int = LANDSCAPE_SEED,
+    min_cluster_size: int = LANDSCAPE_MIN_CLUSTER,
+) -> tuple[pd.DataFrame | None, str]:
+    """Cached landscape joined with repo attributes, plus a status.
+
+    Status: `no_embeddings` (nothing to project), `not_computed` (no cache row or no table yet),
+    `stale` (vectors or parameters changed since; the old points are still returned) or `fresh`.
+    Never computes anything: the page offers a Recompute button for that.
+    """
+    from repka import landscape
+
+    ids, matrix = _landscape_inputs(conn, domain_id, model)
+    if not ids:
+        return None, "no_embeddings"
+    try:
+        row = conn.execute(
+            "SELECT params_hash, payload FROM landscape_cache WHERE domain_id = ? AND model = ? AND method = ?",
+            (domain_id, model, method),
+        ).fetchone()
+    except sqlite3.OperationalError:  # migration 003 not applied yet
+        row = None
+    if row is None:
+        return None, "not_computed"
+    current = landscape.params_hash(ids, matrix, method, seed, min_cluster_size)
+    status = "fresh" if row["params_hash"] == current else "stale"
+    payload = json.loads(row["payload"])
+    terms = payload["terms"]
+    points = pd.DataFrame(
+        {"repo_id": payload["repo_ids"], "x": payload["x"], "y": payload["y"], "cluster": payload["cluster"]}
+    )
+    kinds = _latest_kinds(conn, domain_id)
+    points["kind"] = points["repo_id"].map(lambda i: _text(kinds.get(i) or "n/a"))
+    points["cluster_name"] = points["cluster"].map(
+        lambda c: "noise" if c == -1 else f"{c}: " + ", ".join(_text(t) for t in terms.get(str(c), []))
+    )
+    frame = repos_frame(conn, domain_id).merge(points, on="repo_id", how="inner")
+    frame["description"] = frame["description"].fillna("")
+    return frame, status
