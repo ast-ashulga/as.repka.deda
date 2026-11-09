@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import Counter
 from collections.abc import Iterable, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from repka.domain.schema import Domain, format_duration
@@ -303,3 +305,107 @@ def landscape_frame(
     frame = repos_frame(conn, domain_id).merge(points, on="repo_id", how="inner")
     frame["description"] = frame["description"].fillna("")
     return frame, status
+
+
+# --- Analytics page (P2-T04) -------------------------------------------------------------------
+
+GAP_AFTER = timedelta(days=2)
+"""A chart line breaks where two snapshots of one repo are further apart than this (no interpolation)."""
+
+
+def window_deltas(
+    conn: sqlite3.Connection, repo_ids: Iterable[int], days: int, now: datetime | None = None
+) -> pd.DataFrame:
+    """Stars gained over the last `days` per repo, from `store.metrics.stars_delta` (NaN = n/a)."""
+    now = now or datetime.now(UTC)
+    rows = []
+    for repo_id in sorted(set(repo_ids)):
+        snaps = [s for s in repo.snapshots_for(conn, repo_id) if s.taken_at <= now]
+        if not snaps:
+            continue
+        rows.append(
+            {
+                "repo_id": repo_id,
+                "full_name": _text(_full_name(conn, repo_id)),
+                "stars": snaps[-1].stars,
+                "stars_delta": stars_delta(snaps, now, days),
+            }
+        )
+    frame = pd.DataFrame(rows, columns=_DELTA_COLUMNS)
+    return frame.sort_values("stars_delta", ascending=False, na_position="last", kind="stable", ignore_index=True)
+
+
+_DELTA_COLUMNS = ["repo_id", "full_name", "stars", "stars_delta"]
+
+
+def _full_name(conn: sqlite3.Connection, repo_id: int) -> str | None:
+    row = conn.execute("SELECT full_name FROM repos WHERE repo_id = ?", (repo_id,)).fetchone()
+    return row["full_name"] if row else None
+
+
+def with_gaps(frame: pd.DataFrame, group: str, time: str, value: str) -> pd.DataFrame:
+    """Add an empty row just before each point that follows a gap longer than GAP_AFTER, so a line
+    chart breaks there instead of drawing across the missing snapshots."""
+    frame = frame.sort_values([group, time], kind="stable", ignore_index=True)
+    starts_after_gap = frame.groupby(group)[time].diff() > GAP_AFTER
+    breaks = frame[starts_after_gap].copy()
+    if breaks.empty:
+        return frame
+    breaks[time] = breaks[time] - pd.Timedelta(seconds=1)
+    breaks[value] = np.nan
+    return pd.concat([frame, breaks], ignore_index=True).sort_values([group, time], kind="stable", ignore_index=True)
+
+
+def sparkline_values(history: pd.DataFrame, column: str) -> dict[int, list[float]]:
+    """Per repo, the non-null values of `column` in time order (for a table sparkline)."""
+    out: dict[int, list[float]] = {}
+    for repo_id, grp in history.dropna(subset=[column]).sort_values("taken_at").groupby("repo_id"):
+        out[int(repo_id)] = [float(v) for v in grp[column]]
+    return out
+
+
+def velocity_table(repos: pd.DataFrame, history: pd.DataFrame) -> pd.DataFrame:
+    """Repos ranked by velocity (n/a last), with the velocity trend per repo as a sparkline list."""
+    trends = sparkline_values(history, "velocity")
+    out = repos[["repo_id", "full_name", "stars", "velocity"]].copy()
+    out["trend"] = out["repo_id"].map(lambda repo_id: trends.get(int(repo_id), []))
+    return out.sort_values("velocity", ascending=False, na_position="last", kind="stable", ignore_index=True)
+
+
+_POPULARITY_COLUMNS = ["taken_at", "dependency", "repos"]
+
+
+def popularity_over_time(events: pd.DataFrame, top: int = 8) -> pd.DataFrame:
+    """Repos using each dependency over time, from stack-history rows of many repos (columns: repo_id,
+    dependency, change, first_seen_at). Keeps the `top` dependencies by their latest repo count."""
+    if events.empty:
+        return pd.DataFrame(columns=_POPULARITY_COLUMNS)
+    ev = events.assign(
+        step=events["change"].map({"added": 1, "removed": -1}),
+        at=pd.to_datetime(events["first_seen_at"], utc=True),
+    ).sort_values("at", kind="stable")
+    state: dict[tuple[int, str], int] = {}
+    seen: set[str] = set()
+    rows = []
+    for at, grp in ev.groupby("at", sort=True):
+        for row in grp.itertuples(index=False):
+            key = (int(row.repo_id), row.dependency)
+            state[key] = state.get(key, 0) + int(row.step)
+            seen.add(row.dependency)
+        counts = Counter(dep for (_, dep), n in state.items() if n > 0)
+        rows.extend({"taken_at": at, "dependency": dep, "repos": counts.get(dep, 0)} for dep in sorted(seen))
+    frame = pd.DataFrame(rows, columns=_POPULARITY_COLUMNS)
+    latest = frame[frame["taken_at"] == frame["taken_at"].max()].set_index("dependency")["repos"]
+    keep = latest.sort_values(ascending=False, kind="stable").head(top).index
+    return frame[frame["dependency"].isin(keep)].reset_index(drop=True)
+
+
+def dependency_popularity(conn: sqlite3.Connection, repo_ids: Iterable[int], top: int = 8) -> pd.DataFrame:
+    """`popularity_over_time` over the stack history of the given repos."""
+    frames = []
+    for repo_id in sorted(set(repo_ids)):
+        frame = stack_history(conn, repo_id)
+        if not frame.empty:
+            frames.append(frame.assign(repo_id=repo_id))
+    events = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return popularity_over_time(events, top)

@@ -235,7 +235,7 @@ uv sync --group dashboard
 uv run repka dashboard              # http://127.0.0.1:8501 (--port to change); Ctrl-C stops it
 ```
 
-It binds to `127.0.0.1` only and sends nothing anywhere. It opens the database read-only, with two exceptions: the Landscape page's Recompute button stores its 2-D map in the `landscape_cache` table (needs `embed.enabled` and `repka embed` first), and the Domains page creates, edits, enables and deletes `domains/<id>.yaml` files, with the same checks as `repka domain new`; new domains start disabled.
+It binds to `127.0.0.1` only and sends nothing anywhere. It opens the database read-only, with two exceptions: the Landscape page's Recompute button stores its 2-D map in the `landscape_cache` table (needs `embed.enabled` and `repka embed` first), and the Domains page creates, edits, enables and deletes `domains/<id>.yaml` files, with the same checks as `repka domain new`; new domains start disabled. The Analytics page shows star growth, velocity, top movers and dependency changes for one domain.
 
 ## Troubleshooting
 
