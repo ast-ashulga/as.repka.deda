@@ -62,7 +62,7 @@ as.repka.deda/
 │   ├── schedule.py           # launchd plist install/uninstall
 │   ├── pipeline.py           # run_pass() with injected boundaries (+ run_cli.py)
 │   └── dashboard_data.py     # Phase 2 read-only data layer
-├── dashboard/                # Phase 2 (Streamlit): app.py (home), pages/ (P2-T02..T04)
+├── dashboard/                # Phase 2 (Streamlit): app.py (home), pages/ (1_Domains.py: the only writer, via domain.schema; 2-3 are P2-T03/T04)
 ├── scripts/                  # spike scripts (not part of the package)
 ├── tests/                    # pytest; fixtures/github/*.json recorded responses
 ├── .state/  logs/            # gitignored
