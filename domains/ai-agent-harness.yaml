@@ -1,0 +1,32 @@
+id: ai-agent-harness
+name: "AI Agent Harness"
+enabled: true
+scan_every: 24h
+profile: |
+  Agent harnesses: the runtime and scaffolding around an LLM agent that runs the
+  tool loop, manages context and memory, sandboxes execution, enforces permissions,
+  orchestrates sub-agents and evaluates agent runs. Included: coding-agent
+  harnesses and CLIs, plugin/skill/hook systems for harnesses, self-improving or
+  recursively self-improving harnesses (agents that evolve their own prompts, tools
+  or code against a measurable goal), long-horizon agent control planes, and
+  agent eval harnesses.
+  Excluded: plain LLM SDKs or API wrappers, general chat UIs, awesome-lists,
+  tutorials, courses and prompt collections without runnable code, skill packs
+  that only contain prompts, and forks without changes.
+  Match example: a Rust or TypeScript agent harness with a plugin system and a
+  sandboxed tool loop; a framework where an agent rewrites its own harness and
+  keeps changes that improve a benchmark. Miss example: a list of "awesome
+  agents"; a course on building agents from scratch.
+search:
+  keywords:
+    - ["agent harness", "coding agent harness"]
+    - ["self-improving harness", "recursive self-improvement"]
+  topics: [agent-harness, agentic-harness, harness-engineering, deepseek-harness, self-improving, self-improving-agents, recursive-self-improvement]
+  languages: [Python, TypeScript, Rust, Go]
+  exclude: ["awesome"]
+  min_stars: 30
+  in: [name, description, readme]
+  fork_policy: exclude
+key_files: [pyproject.toml, package.json, Cargo.toml, go.mod]
+triage:
+  questions: {}
