@@ -235,7 +235,7 @@ uv sync --group dashboard
 uv run repka dashboard              # http://127.0.0.1:8501 (--port to change); Ctrl-C stops it
 ```
 
-It binds to `127.0.0.1` only, opens the database read-only and sends nothing anywhere.
+It binds to `127.0.0.1` only, opens the database read-only and sends nothing anywhere. The Domains page is the one exception to "read-only": it creates, edits, enables and deletes `domains/<id>.yaml` files, with the same checks as `repka domain new`; new domains start disabled.
 
 ## Troubleshooting
 
