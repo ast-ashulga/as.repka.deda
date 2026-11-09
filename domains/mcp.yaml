@@ -1,0 +1,29 @@
+id: mcp
+name: "MCP servers & tooling "
+enabled: true
+scan_every: 12h
+profile: |
+  Model Context Protocol (MCP) servers, clients, SDKs and gateways: code that
+  exposes tools, resources or prompts to LLM applications over MCP, or that
+  consumes MCP servers. Included: reference and community MCP servers, MCP SDKs
+  in any language, MCP inspectors and test harnesses, and proxies or gateways
+  that aggregate several MCP servers.
+  Excluded: general LLM SDKs or agent frameworks that only mention MCP in a
+  feature list, awesome-lists, tutorials and course notes without code, and
+  forks of official servers with no changes.
+  Examples of a match: a TypeScript server that exposes a GitHub API as MCP
+  tools; a Python SDK for building MCP clients. Examples of a miss: a blog post
+  about MCP; a Minecraft mod that happens to be called "mcp".
+search:
+  keywords:
+    - ["model context protocol", "mcp server"]
+    - ["mcp client", "mcp sdk"]
+  topics: [mcp, model-context-protocol]
+  languages: [Python, TypeScript, Go, Rust]
+  exclude: ["minecraft"]
+  min_stars: 200
+  in: [name, description, readme]
+  fork_policy: exclude
+key_files: [pyproject.toml, package.json, Cargo.toml, go.mod]
+triage:
+  questions: {}

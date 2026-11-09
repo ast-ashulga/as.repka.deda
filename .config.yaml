@@ -8,14 +8,14 @@ github:
   timeout_s: 30
 
 collect:
-  first_window: 365d           # backfill window on a domain's first scan (pushed:>=); first scan is a silent baseline
+  first_window: 90d            # backfill window on a domain's first scan (pushed:>=); first scan is a silent baseline
   overlap: 1d                  # incremental scans use pushed:>= last_scan - overlap
   max_repos_per_domain_scan: 3000
-  enrich_batch: 50             # GraphQL nodes per query
+  enrich_batch: 25             # GraphQL nodes per query
   slow_metrics_every: 7d       # contributors + participation refresh period
 
 triage:
-  enabled: false               # run decider triage during `repka run`
+  enabled: true                # run decider triage during `repka run`
   model: d1-3B                 # name in deciders/models.yaml
   deciders_dir: deciders
   timeout_s: 1800
@@ -25,7 +25,7 @@ triage:
   thresholds: {relevant: 0.70, substance: 2}
 
 embed:
-  enabled: false               # compute embeddings during `repka run`
+  enabled: true                # compute embeddings during `repka run`
   backend: ollama
   model: nomic-embed-text
   url: http://localhost:11434
@@ -39,11 +39,11 @@ digest:
   star_spike_min_delta: 50     # stars_delta_1d threshold for the "top movers" digest section
 
 notify:
-  enabled: false               # Telegram delivery; off by default
+  enabled: true               # Telegram delivery; off by default
   backend: telegram_user       # own account via fast-mcp-telegram
   chat_id: "me"                # "me" = Saved Messages; or numeric id / @username
   topic_id: null
 
 run:
-  send: false                  # second switch: digests are sent only if notify.enabled AND run.send (or --send)
+  send: true                  # second switch: digests are sent only if notify.enabled AND run.send (or --send)
   log_level: INFO              # DEBUG, INFO, WARNING or ERROR

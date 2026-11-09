@@ -1,6 +1,6 @@
-# repka
+# repka deda
 
-repka watches GitHub for repositories in technology domains you define (for example "MCP servers"),
+repka deda watches GitHub for repositories in technology domains you define (for example "MCP servers"),
 decides locally which of them are relevant, and sends you a short Telegram digest twice a day:
 new repos, fresh releases, star movers and dependency changes. Everything except the GitHub API
 calls and the Telegram message stays on your Mac.
