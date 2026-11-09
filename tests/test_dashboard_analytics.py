@@ -69,11 +69,24 @@ def test_with_gaps_breaks_lines_without_interpolating():
             "stars": [1, 2, 3, 5],
         }
     )
-    out = data.with_gaps(frame, "repo_id", "taken_at", "stars")
+    out = data.with_gaps(frame, "repo_id", "taken_at", "stars", data.gap_after(timedelta(days=2)))
     repo1 = out[out["repo_id"] == 1].reset_index(drop=True)
     assert len(repo1) == 4  # one empty row inserted before the 10-day-later snapshot
     assert pd.isna(repo1.loc[2, "stars"]) and repo1.loc[3, "stars"] == 3
     assert len(out[out["repo_id"] == 2]) == 1  # a single snapshot gets no break
+
+
+def test_weekly_scans_stay_one_line_and_a_missing_scan_breaks_it():
+    t0 = datetime(2026, 11, 1, tzinfo=UTC)
+    gap = data.gap_after(timedelta(days=7))  # scan_every = 7d
+    weekly = [t0 + timedelta(days=7 * i) for i in range(4)]
+    frame = pd.DataFrame({"repo_id": 1, "taken_at": pd.to_datetime(weekly, utc=True), "stars": [1, 2, 3, 4]})
+    assert len(data.with_gaps(frame, "repo_id", "taken_at", "stars", gap)) == 4  # no break inserted
+    days = [0, 7, 21]  # the sample at day 14 is missing: 21 days (3 scans) after the one at day 7
+    holed = pd.DataFrame({"repo_id": 1, "taken_at": pd.to_datetime([t0 + timedelta(days=d) for d in days], utc=True),
+                          "stars": [1, 2, 3]})
+    out = data.with_gaps(holed, "repo_id", "taken_at", "stars", gap)
+    assert len(out) == 4 and pd.isna(out["stars"]).sum() == 1
 
 
 def test_null_deltas_stay_null_in_history(conn):

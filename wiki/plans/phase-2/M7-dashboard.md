@@ -32,6 +32,7 @@ Decision: Streamlit multipage app, Plotly, umap-learn, scikit-learn (HDBSCAN, t-
   - Every write goes through `repka.domain.schema` (same validation as the CLI); an invalid form never writes a file.
   - Changing `scan_every` takes effect on the next hourly `repka run` without touching launchd.
   - New domains are created with `enabled: false` unless the user ticks "enable".
+  - Deviation: the "also purge data" checkbox was not built (dashboard is read-only; follow-up).
 
 ### P2-T03: Landscape map
 
@@ -45,6 +46,7 @@ Decision: Streamlit multipage app, Plotly, umap-learn, scikit-learn (HDBSCAN, t-
   - Forks need data: if the domain's `fork_policy` is `exclude`, the page says so and links to the domain editor.
   - 5,000 repos render in < 10 s on Apple Silicon (UMAP cached; recompute only when vectors change).
   - Only vectors of one embedding model are ever projected together.
+  - Recompute opens a writable connection and runs migrate(); documented in architecture.md.
 
 ### P2-T04: Analytics charts
 

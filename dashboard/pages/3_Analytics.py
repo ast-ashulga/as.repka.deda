@@ -12,7 +12,7 @@ import streamlit as st
 
 from repka import dashboard_data as data
 from repka.config import ConfigError, db_path
-from repka.domain.schema import load_domains
+from repka.domain.schema import DEFAULT_SCAN_EVERY, load_domains
 from repka.store.db import connect
 from repka.textutil import printable
 
@@ -35,14 +35,14 @@ def _theme() -> dict:
         return THEMES["light"]
 
 
-def _line_chart(df, x, y, color, title, domain, colors, theme):
+def _line_chart(df, x, y, color, title, domain, colors, theme, zero=True):
     df = df.assign(**{x: df[x].dt.tz_localize(None)})  # Vega-lite wants naive UTC timestamps
     chart = (
         alt.Chart(df)
         .mark_line(point=True, strokeWidth=2)
         .encode(
             x=alt.X(f"{x}:T", title=None),
-            y=alt.Y(f"{y}:Q", title=title),
+            y=alt.Y(f"{y}:Q", title=title, scale=alt.Scale(zero=zero)),
             color=alt.Color(
                 f"{color}:N",
                 scale=alt.Scale(domain=domain, range=colors),
@@ -105,21 +105,23 @@ try:
 
         # (a) stars and 7-day star delta over time, for the top repos by stars (colors follow that rank)
         st.subheader("Stars over time")
-        st.caption("Lines break where snapshots are more than 2 days apart. Delta 7d is n/a until two snapshots exist.")
+        st.caption("Lines break where a scan was missed (snapshots further apart than the domain's scan interval). "
+                   "Delta 7d is n/a until two snapshots exist.")
+        gap = data.gap_after(next((d.scan_every for d in domains if d.id == domain_id), DEFAULT_SCAN_EVERY))
         top_repos = repos.head(MAX_SERIES)
         options = top_repos["full_name"].tolist()
         picked = st.multiselect("Repos", options, default=options[:3], max_selections=MAX_SERIES)
         picked_ids = top_repos.loc[top_repos["full_name"].isin(picked), "repo_id"]
         series_colors = {name: theme["series"][i] for i, name in enumerate(options) if name in picked}
         if picked:
-            series = data.with_gaps(history[history["repo_id"].isin(picked_ids)], "repo_id", "taken_at", "stars")
+            series = data.with_gaps(history[history["repo_id"].isin(picked_ids)], "repo_id", "taken_at", "stars", gap)
             left, right = st.columns(2)
             left.altair_chart(
                 _line_chart(series, "taken_at", "stars", "full_name", "stars", list(series_colors),
-                            list(series_colors.values()), theme),
+                            list(series_colors.values()), theme, zero=False),
             )
             delta_series = data.with_gaps(
-                history[history["repo_id"].isin(picked_ids)], "repo_id", "taken_at", "stars_delta_7d"
+                history[history["repo_id"].isin(picked_ids)], "repo_id", "taken_at", "stars_delta_7d", gap
             )
             right.altair_chart(
                 _line_chart(delta_series, "taken_at", "stars_delta_7d", "full_name", "stars gained, 7d",

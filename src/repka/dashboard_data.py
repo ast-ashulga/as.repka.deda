@@ -309,8 +309,14 @@ def landscape_frame(
 
 # --- Analytics page (P2-T04) -------------------------------------------------------------------
 
-GAP_AFTER = timedelta(days=2)
-"""A chart line breaks where two snapshots of one repo are further apart than this (no interpolation)."""
+GAP_SCAN_FACTOR = 1.5  # a missed scan doubles the spacing, so 1.5 scan intervals is the break point
+GAP_SLACK = timedelta(hours=6)  # run jitter: `repka run` is hourly and a due scan can start up to an hour late
+
+
+def gap_after(scan_every: timedelta) -> timedelta:
+    """Where a chart line breaks for a domain scanned every `scan_every`. A snapshot is taken once per scan,
+    so regular spacing is one scan; a missed scan breaks the line (no interpolation)."""
+    return scan_every * GAP_SCAN_FACTOR + GAP_SLACK
 
 
 def window_deltas(
@@ -343,11 +349,11 @@ def _full_name(conn: sqlite3.Connection, repo_id: int) -> str | None:
     return row["full_name"] if row else None
 
 
-def with_gaps(frame: pd.DataFrame, group: str, time: str, value: str) -> pd.DataFrame:
-    """Add an empty row just before each point that follows a gap longer than GAP_AFTER, so a line
-    chart breaks there instead of drawing across the missing snapshots."""
+def with_gaps(frame: pd.DataFrame, group: str, time: str, value: str, gap: timedelta) -> pd.DataFrame:
+    """Add an empty row just before each point that follows a gap longer than `gap` (see `gap_after`), so a
+    line chart breaks there instead of drawing across the missing snapshots."""
     frame = frame.sort_values([group, time], kind="stable", ignore_index=True)
-    starts_after_gap = frame.groupby(group)[time].diff() > GAP_AFTER
+    starts_after_gap = frame.groupby(group)[time].diff() > gap
     breaks = frame[starts_after_gap].copy()
     if breaks.empty:
         return frame
