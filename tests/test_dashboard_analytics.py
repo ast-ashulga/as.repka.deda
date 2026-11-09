@@ -108,9 +108,7 @@ def test_popularity_counts_repos_per_dependency(conn):
     assert data.dependency_popularity(conn, [], top=8).empty
 
 
-def test_analytics_page_runs_on_scratch_home(tmp_path, monkeypatch):
-    from streamlit.testing.v1 import AppTest
-
+def _scratch_home(tmp_path, monkeypatch):
     monkeypatch.setenv("REPKA_HOME", str(tmp_path))
     monkeypatch.delenv("REPKA_GITHUB_TOKEN", raising=False)
     (tmp_path / ".state").mkdir()
@@ -121,10 +119,30 @@ def test_analytics_page_runs_on_scratch_home(tmp_path, monkeypatch):
         "key_files: [pyproject.toml]\ntriage:\n  questions: {}\n",
         encoding="utf-8",
     )
-    conn = make_db(tmp_path / ".state" / "repka.db")
+    return make_db(tmp_path / ".state" / "repka.db")
+
+
+def test_analytics_page_runs_on_scratch_home(tmp_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    conn = _scratch_home(tmp_path, monkeypatch)
     _seed(conn)
     conn.close()
 
     at = AppTest.from_file(str(PAGE), default_timeout=60).run()
     assert not at.exception
     assert not at.error
+
+
+def test_single_snapshot_repo_shows_not_enough_snapshots_message(tmp_path, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    conn = _scratch_home(tmp_path, monkeypatch)
+    add_repo(conn, 1, full_name="o/alpha", stars=90, taken_at=datetime(2026, 11, 7, 6, tzinfo=UTC))
+    add_verdict(conn, 1, accepted=True)
+    conn.commit()
+    conn.close()
+
+    at = AppTest.from_file(str(PAGE), default_timeout=60).run()
+    assert not at.exception
+    assert any(i.value == "Not enough snapshots yet: deltas appear after the second scan." for i in at.info)

@@ -28,6 +28,11 @@ def _text(value: Any) -> Any:
     return printable(value) if isinstance(value, str) else value
 
 
+def shown(frame: pd.DataFrame) -> pd.DataFrame:
+    """Display shaping only: null cells read as n/a instead of 'None'."""
+    return frame.fillna("n/a")
+
+
 def domains_overview(conn: sqlite3.Connection, domains: Sequence[Domain]) -> pd.DataFrame:
     """One row per domain definition: schedule, last scan and repo counts (accepted = latest verdict accepted)."""
     rows = []

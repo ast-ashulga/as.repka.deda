@@ -133,7 +133,7 @@ if not domains:
 elif db_path().exists():
     try:
         with closing(connect(readonly=True)) as conn:
-            st.dataframe(data.domains_overview(conn, domains), hide_index=True)
+            st.dataframe(data.shown(data.domains_overview(conn, domains)), hide_index=True)
     except sqlite3.Error as exc:
         st.error(f"Could not read the database (run `repka db migrate`?): {printable(str(exc))}")
 else:

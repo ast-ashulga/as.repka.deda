@@ -15,11 +15,6 @@ from repka.domain.schema import load_domains
 from repka.store.db import connect
 
 
-def _shown(frame):
-    """Display shaping only: null cells read as n/a instead of 'None'."""
-    return frame.fillna("n/a")
-
-
 st.set_page_config(page_title="repka", layout="wide")
 st.title("repka")
 st.caption(f"Read-only view of {db_path()}. Data changes only when `repka run` (or collect) writes.")
@@ -38,14 +33,14 @@ try:
     with closing(connect(readonly=True)) as conn:
         st.subheader("Domains")
         if domains:
-            st.dataframe(_shown(data.domains_overview(conn, domains)), hide_index=True)
+            st.dataframe(data.shown(data.domains_overview(conn, domains)), hide_index=True)
         else:
             st.info("No domains yet. Add one with `repka domain new`.")
 
         st.subheader("Last runs")
-        st.dataframe(_shown(data.recent_runs(conn, 10)), hide_index=True)
+        st.dataframe(data.shown(data.recent_runs(conn, 10)), hide_index=True)
 
         st.subheader("Last digests")
-        st.dataframe(_shown(data.recent_digests(conn, 10)), hide_index=True)
+        st.dataframe(data.shown(data.recent_digests(conn, 10)), hide_index=True)
 except sqlite3.Error as exc:
     st.error(f"Could not read the database (run `repka db migrate`?): {exc}")

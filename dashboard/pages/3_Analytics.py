@@ -120,13 +120,15 @@ try:
                 _line_chart(series, "taken_at", "stars", "full_name", "stars", list(series_colors),
                             list(series_colors.values()), theme, zero=False),
             )
-            delta_series = data.with_gaps(
-                history[history["repo_id"].isin(picked_ids)], "repo_id", "taken_at", "stars_delta_7d", gap
-            )
-            right.altair_chart(
-                _line_chart(delta_series, "taken_at", "stars_delta_7d", "full_name", "stars gained, 7d",
-                            list(series_colors), list(series_colors.values()), theme),
-            )
+            picked_history = history[history["repo_id"].isin(picked_ids)]
+            if picked_history["stars_delta_7d"].notna().any():
+                delta_series = data.with_gaps(picked_history, "repo_id", "taken_at", "stars_delta_7d", gap)
+                right.altair_chart(
+                    _line_chart(delta_series, "taken_at", "stars_delta_7d", "full_name", "stars gained, 7d",
+                                list(series_colors), list(series_colors.values()), theme),
+                )
+            else:  # no delta yet: an empty chart would have no scale
+                right.info("Not enough snapshots yet: deltas appear after the second scan.")
 
         # (b) velocity ranking with a per-repo trend
         st.subheader("Velocity")
