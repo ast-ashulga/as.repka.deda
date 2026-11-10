@@ -125,6 +125,8 @@ The switches that matter:
 | `run.send` | false | `repka run` delivers digests (also needs `notify.enabled`); `--send` does the same for one run |
 | `collect.first_window` | 365d | backfill window of a domain's first scan |
 | `digest.slots` | 08:30, 19:30 | local times at which a digest is due |
+| `digest.insights` | false | richer digest items (description, kind, facet tags, legend) and held-back items kept for `repka digest --more` |
+| `digest.releases_message` | false | releases go in their own daily message at `digest.releases_slot` (default 09:00) |
 
 ## Collecting repositories
 
@@ -216,6 +218,28 @@ uv run repka digest --send                      # deliver the due slot and recor
 The session in `.sessions/` is full access to the account: never commit or share it. A slot is sent at most once;
 missed slots are coalesced into the latest one, and a slot older than `digest.max_lateness` is skipped. An empty
 digest is never sent. A failed send is retried on the next run.
+
+### Insights digest and releases message (optional, off by default)
+
+Two switches in `.config.yaml`, both `false` until you turn them on (turn them on together; `repka doctor` warns
+if only one is on):
+
+- `digest.insights: true`: the main digest shows only what is new or growing (🆕 🔎 📈, plus stack changes). Each
+  item has a one-line description, `kind · lvl N` and up to three facet tags: the domain's extra decider answers
+  with probability >= `digest.facet_min_p` (0.7). A legend line explains the icons. Items over
+  `digest.max_items_per_domain` are not lost: the footer counts them (`…and 12 more: 5 🆕, 7 🔎`) and they stay
+  pending until shown, or until `digest.pending_max_age` (7d) passes.
+- `digest.releases_message: true`: releases (🚀) leave the main digest and go out once a day as a separate message at
+  `digest.releases_slot` (09:00): per domain, newest release per repo with stars and tag, most stars first. An empty
+  releases message is never sent, and a failed send keeps the releases for the next one.
+
+```bash
+uv run repka digest --more               # what the digest holds back right now (read-only)
+uv run repka releases                    # release events of accepted repos in the last 24h (read-only)
+uv run repka releases --since 7d --domain mcp
+```
+
+Without the two switches nothing changes: the digest keeps its current format and releases stay in it.
 
 ## Scheduling (launchd)
 
