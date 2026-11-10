@@ -1,5 +1,4 @@
 import dataclasses
-import re
 import subprocess
 from datetime import timedelta
 from pathlib import Path
@@ -120,17 +119,19 @@ def test_digest_new_keys_parse():
 
 
 @pytest.mark.parametrize(
-    "raw, key",
+    "raw, message",
     [
-        ({"releases_slot": "9am"}, "digest.releases_slot"),
-        ({"releases_slot": "25:00"}, "digest.releases_slot"),
-        ({"facet_min_p": 1.5}, "digest.facet_min_p"),
-        ({"facet_min_p": 0}, "digest.facet_min_p"),
-        ({"insights": "yes"}, "digest.insights"),
-        ({"releases_message": 1}, "digest.releases_message"),
-        ({"pending_max_age": "soon"}, "digest.pending_max_age"),
+        ({"releases_slot": "9am"}, "digest.releases_slot must be a local time HH:MM"),
+        ({"releases_slot": "25:00"}, "digest.releases_slot must be a local time HH:MM"),
+        ({"facet_min_p": 1.5}, "digest.facet_min_p must be above 0 and at most 1"),
+        ({"facet_min_p": 0}, "digest.facet_min_p must be above 0 and at most 1"),
+        ({"insights": "yes"}, "digest.insights must be true or false"),
+        ({"releases_message": 1}, "digest.releases_message must be true or false"),
+        ({"pending_max_age": "soon"}, "digest.pending_max_age: bad duration 'soon'"),
     ],
 )
-def test_digest_bad_values_name_the_key(raw, key):
-    with pytest.raises(ConfigError, match=re.escape(key)):
+def test_digest_bad_values_name_the_key(raw, message):
+    with pytest.raises(ConfigError) as exc:
         load_digest(raw)
+    assert message in str(exc.value)
+    assert "unknown config key" not in str(exc.value)
