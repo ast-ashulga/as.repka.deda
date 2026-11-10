@@ -52,3 +52,4 @@ notify:
 run:
   send: true                  # second switch: digests are sent only if notify.enabled AND run.send (or --send)
   log_level: INFO              # DEBUG, INFO, WARNING or ERROR
+  progress: live               # stderr while `repka run` works: plain | live | lines | jsonl (live without a terminal acts as lines)
