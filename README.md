@@ -2,8 +2,9 @@
 
 repka deda watches GitHub for repositories in technology domains you define (for example "MCP servers"),
 decides locally which of them are relevant, and sends you a short Telegram digest twice a day:
-new repos, fresh releases, star movers and dependency changes. Everything except the GitHub API
-calls and the Telegram message stays on your Mac.
+new repos, fresh releases, star movers and dependency changes. Optionally the digest shows what is
+different about each project (facet tags) and releases go in their own daily message. Everything except the
+GitHub API calls and the Telegram messages stays on your Mac.
 
 Pipeline: **collect** (GitHub search + GraphQL snapshots) -> **triage** (local decider model) ->
 **embed** (local Ollama, for "similar repos") -> **digest** (Telegram). `repka run` does one pass;
@@ -73,6 +74,7 @@ uv run repka doctor --json           # {ok, errors, warnings, checks[{id,status,
 uv run repka domain new --from-file brief.txt < answers.txt   # or use the Claude skill below
 uv run repka domain list; uv run repka domain show <id>; uv run repka domain plan <id> --json
 uv run repka run --json              # full report (stages, errors, hints, digest text) on stdout
+uv run repka digest --more           # items waiting for a later digest (read-only); repka releases lists release events
 uv run repka db stats                # row counts and the last runs
 ```
 
@@ -107,6 +109,12 @@ scan stores every hit (bounded by `collect.max_repos_per_domain_scan`, after whi
 run continues). Keyword groups search `description` and `readme` (`name` is dropped for groups with a phrase, because
 GitHub then returns nothing); `in: [name]` with a phrase finds nothing either.
 
+A domain can also carry **facet questions** under `triage.questions` (yes/no questions of `type: noul`, for example
+`gateway` or `guardrails` in `domains/mcp.yaml`). They never decide whether a repo is accepted (thresholds ignore
+them); they say how an accepted repo differs from the others in its domain and become the facet tags of the
+insights digest. Changing a domain's questions re-triages its repos at the next run, which can take a long while
+on a large domain.
+
 ## Configuration
 
 `.config.yaml` (tracked defaults, every key optional, every flag `false`) holds all settings; unknown keys and
@@ -127,6 +135,8 @@ The switches that matter:
 | `digest.slots` | 08:30, 19:30 | local times at which a digest is due |
 | `digest.insights` | false | richer digest items (description, kind, facet tags, legend) and overflow new/found/release items kept pending (listed by `repka digest --more`) |
 | `digest.releases_message` | false | releases go in their own daily message at `digest.releases_slot` (default 09:00) |
+| `digest.max_items_per_domain` | 10 | items per domain in one digest message; the rest are counted in the footer |
+| `digest.facet_min_p` / `digest.pending_max_age` | 0.7 / 7d | facet tag threshold; how long an unshown item waits (both only matter with `digest.insights`) |
 
 ## Collecting repositories
 
@@ -221,8 +231,8 @@ digest is never sent. A failed send is retried on the next run.
 
 ### Insights digest and releases message (optional, off by default)
 
-Two switches in `.config.yaml`, both `false` until you turn them on (turn them on together; `repka doctor` warns
-if only one is on):
+Two switches in `.config.yaml`, both `false` until you turn them on (they are meant to be used together; `repka doctor`
+warns if only one is on, and neither is an error):
 
 - `digest.insights: true`: the main digest shows only what is new or growing (🆕 🔎 📈, plus stack changes). Each
   item has a one-line description, `kind · lvl N` and up to three facet tags: the domain's extra decider answers
@@ -239,6 +249,12 @@ uv run repka digest --more               # items waiting in the queue: new/found
 uv run repka releases                    # release events of accepted repos in the last 24h (read-only)
 uv run repka releases --since 7d --domain example-mcp
 ```
+
+The releases message is sent by `repka run` (not by `repka digest --send`, which delivers only the main digest). It
+has its own row in the digest history, is sent at most once a day and never when empty, and the run summary has a
+`releases` line. The
+dashboard Home page lists both kinds of message, what is waiting and the recent releases (see
+[Dashboard](#dashboard-optional)).
 
 Without the two switches nothing changes: the digest keeps its current format and releases stay in it.
 
@@ -270,7 +286,7 @@ database exists, the pages say to run `repka db migrate`, then `repka run`.
 
 | Page | Shows | Notes |
 |---|---|---|
-| Home | Domains overview, last runs, last digests | Invalid domain files are reported at the top |
+| Home | Domains overview, last runs, last digests (`main` and `releases` messages), items waiting for the next digest, recent releases | Invalid domain files are reported at the top. "Waiting" is the `repka digest --more` queue and is empty and marked off until `digest.insights` or `digest.releases_message` is on; "Recent releases" is the same list as `repka releases` (24h, 7d or 30d) |
 | Domains | Domains with scan status; add, edit, enable/disable, delete | Same checks as `repka domain new`; new domains start disabled unless ticked; shows the GitHub queries |
 | Landscape | 2-D map of a domain's accepted repos, clusters with top terms | Needs `embed.enabled: true` and `repka embed` first; size = stars, colour = cluster, symbol = fork or original |
 | Analytics | Stars over time, 7-day velocity, top movers, dependency timeline and popularity | Gaps in snapshots are shown as gaps |
@@ -311,7 +327,7 @@ Start with `uv run repka doctor` and the `hints:` at the end of `uv run repka ru
 ## Known limitations
 
 - The "top movers" digest label (`/24h`) can be based on an older baseline snapshot than 24 hours when snapshots are sparse.
-- Events that stay pending (not yet sent) have no age limit: after a long pause the first digest can contain old events.
+- Without `digest.insights`, events that stay pending (not yet sent) have no age limit: after a long pause the first digest can contain old events. With it, new, found and release items older than `digest.pending_max_age` are dropped unseen.
 - If a digest is split into several Telegram messages and a later one fails after an earlier one was delivered, the slot counts as sent and the items of the failed messages are not retried.
 
 Agent and developer notes are in [CLAUDE.md](CLAUDE.md); the plan and task status are in [wiki/](wiki/README.md).

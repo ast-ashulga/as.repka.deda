@@ -1,5 +1,6 @@
 """Dashboard data layer on a fixture DB. Needs pandas: run with `uv run --group dashboard pytest`."""
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -9,6 +10,7 @@ pd = pytest.importorskip("pandas")
 from helpers_digest import add_repo, add_snapshot, add_verdict, make_db  # noqa: E402
 
 from repka import dashboard_data as data  # noqa: E402
+from repka.config import DigestConfig  # noqa: E402
 from repka.domain.schema import Domain, SearchSpec  # noqa: E402
 from repka.models import KeyFile  # noqa: E402
 from repka.store import repo  # noqa: E402
@@ -85,3 +87,52 @@ def test_recent_runs_and_digests_newest_first(conn):
     assert list(runs["status"]) == ["partial", "ok"]
     assert list(data.recent_runs(conn, 1)["status"]) == ["partial"]
     assert list(data.recent_digests(conn, 10)["status"]) == ["sent"]
+
+
+def test_recent_digests_shows_kind_and_strips_the_slot_prefix(conn):
+    conn.execute(
+        "INSERT INTO digests (slot, local_date, status, item_count, kind) VALUES ('releases:09:00', '2026-11-07', 'sent', 2, 'releases')"
+    )
+    conn.commit()
+    frame = data.recent_digests(conn, 10)
+    assert list(frame["kind"]) == ["releases", "main"]
+    assert list(frame["slot"]) == ["09:00", "08:30"]  # no `releases:` prefix
+
+
+def _add_event(conn, repo_id, kind, payload, detected_at, domain="d1"):
+    conn.execute(
+        "INSERT INTO events (repo_id, domain_id, kind, payload_json, detected_at) VALUES (?, ?, ?, ?, ?)",
+        (repo_id, domain, kind, json.dumps(payload), detected_at),
+    )
+    conn.commit()
+
+
+def test_recent_releases_lists_accepted_repos_in_the_window(conn):
+    _add_event(conn, 1, "release", {"tag": "v1", "published_at": "2026-11-07T01:00:00Z"}, "2026-11-07T06:00:00Z")
+    _add_event(conn, 1, "release", {"tag": "v2", "published_at": "2026-11-07T09:00:00Z"}, "2026-11-07T10:00:00Z")
+    _add_event(conn, 2, "release", {"tag": "v9"}, "2026-11-07T06:00:00Z")  # rejected: hidden
+    _add_event(conn, 1, "release", {"tag": "old"}, "2026-10-01T00:00:00Z")  # outside the window
+
+    frame = data.recent_releases(conn, [_domain("d1")], timedelta(hours=24), now=NOW)
+    assert list(frame["repo"]) == ["o/alpha"]
+    assert list(frame["tag"]) == ["v2"]  # newest tag per repo
+    assert frame.iloc[0]["stars"] == 100
+    assert data.recent_releases(conn, [_domain("d1")], timedelta(hours=1), now=NOW).empty
+
+
+def test_waiting_items_counts_per_kind_and_follows_the_releases_flag(conn):
+    _add_event(conn, 1, "release", {"tag": "v1"}, "2026-11-07T06:00:00Z")
+    _add_event(conn, 1, "new_repo", {}, "2026-11-07T06:00:00Z")
+    domains = [_domain("d1")]
+    columns = ["domain", "new", "found", "release", "total"]
+
+    insights = data.waiting_items(conn, domains, DigestConfig(insights=True), now=NOW)
+    assert list(insights.columns) == columns
+    row = insights.iloc[0]
+    assert (row["new"] + row["found"], row["release"], row["total"]) == (1, 1, 2)
+
+    # releases move to their own message: still counted, from that message's queue
+    both = data.waiting_items(conn, domains, DigestConfig(insights=True, releases_message=True), now=NOW)
+    assert both.iloc[0]["release"] == 1
+
+    assert data.waiting_items(conn, [_domain("d9")], DigestConfig(insights=True), now=NOW).empty

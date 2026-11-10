@@ -18,7 +18,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from repka.config import DigestConfig
+from repka.digest.build import pending_overflow
+from repka.digest.releases import build_releases
+from repka.digest.slots import slot_key
 from repka.domain.schema import Domain, format_duration
+from repka.releases_cli import _releases
 from repka.store import repo
 from repka.store.metrics import repo_metrics, stars_delta, velocity
 from repka.textutil import printable
@@ -175,14 +180,70 @@ _RUN_COLUMNS = ["id", "kind", "started_at", "finished_at", "status", "error"]
 
 
 def recent_digests(conn: sqlite3.Connection, limit: int = 10) -> pd.DataFrame:
+    """Newest first. `kind` is main or releases (the daily releases message); `slot` is the plain HH:MM."""
     rows = conn.execute(
-        "SELECT id, slot, local_date, status, item_count, sent_at FROM digests ORDER BY id DESC LIMIT ?",
+        "SELECT id, kind, slot, local_date, status, item_count, sent_at FROM digests ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()
-    return pd.DataFrame([dict(r) for r in rows], columns=_DIGEST_COLUMNS)
+    frame = pd.DataFrame([dict(r) for r in rows], columns=_DIGEST_COLUMNS)
+    frame["slot"] = [slot.removeprefix(slot_key(kind, "")) for kind, slot in zip(frame["kind"], frame["slot"])]
+    return frame
 
 
-_DIGEST_COLUMNS = ["id", "slot", "local_date", "status", "item_count", "sent_at"]
+_DIGEST_COLUMNS = ["id", "kind", "slot", "local_date", "status", "item_count", "sent_at"]
+
+_RELEASE_COLUMNS = ["domain", "repo", "stars", "tag", "published_at"]
+_WAITING_COLUMNS = ["domain", "new", "found", "release", "total"]
+
+
+def recent_releases(
+    conn: sqlite3.Connection, domains: Sequence[Domain], since: timedelta, now: datetime | None = None
+) -> pd.DataFrame:
+    """Latest release event per accepted repo in the window (sent and pending alike), most stars first per domain.
+
+    Same rows as `repka releases --since`: it calls the same query, so the page and the command agree.
+    """
+    cutoff = (now or datetime.now(UTC)) - since
+    rows = [
+        {"domain": _text(d.name), "repo": r.full_name, "stars": r.stars, "tag": r.tag, "published_at": r.published_at}
+        for d in domains
+        for r in _releases(conn, d, cutoff)
+    ]
+    return pd.DataFrame(rows, columns=_RELEASE_COLUMNS)
+
+
+def waiting_items(
+    conn: sqlite3.Connection, domains: Sequence[Domain], cfg: DigestConfig, now: datetime | None = None
+) -> pd.DataFrame:
+    """What the next messages hold: new / found items of the main digest and pending releases, per domain.
+
+    New and found are the `repka digest --more` queue (stack changes and movers never wait). With
+    `digest.releases_message` on, releases belong to the releases message, so that column counts what it
+    would send; otherwise it counts the releases waiting in the main digest.
+    """
+    now = now or datetime.now(UTC)
+    today = now.astimezone().date().isoformat()
+    main = pending_overflow(conn, list(domains), now, cfg, "00:00", today)
+    counts: dict[str, Counter[str]] = {}
+    names: dict[str, str] = {}
+    for s in main.sections:
+        names[s.domain_id] = s.domain_name
+        counts[s.domain_id] = Counter(i.line_kind for i in (*s.new_repos, *s.releases))
+    if cfg.releases_message:
+        for rs in build_releases(conn, list(domains), now, cfg, "00:00", today).sections:
+            names[rs.domain_id] = rs.domain_name
+            counts.setdefault(rs.domain_id, Counter())["release"] = len(rs.items) + rs.more
+    rows = [
+        {
+            "domain": _text(names[d]),
+            "new": c["new"],
+            "found": c["found"],
+            "release": c["release"],
+            "total": c["new"] + c["found"] + c["release"],
+        }
+        for d, c in counts.items()
+    ]
+    return pd.DataFrame(rows, columns=_WAITING_COLUMNS)
 
 
 # --- Landscape map (P2-T03) --------------------------------------------------------------------------

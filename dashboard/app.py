@@ -10,7 +10,7 @@ from contextlib import closing
 import streamlit as st
 
 from repka import dashboard_data as data
-from repka.config import ConfigError, db_path
+from repka.config import ConfigError, db_path, load_config, parse_duration
 from repka.domain.schema import load_domains
 from repka.store.db import connect
 
@@ -41,6 +41,41 @@ try:
         st.dataframe(data.shown(data.recent_runs(conn, 10)), hide_index=True)
 
         st.subheader("Last digests")
+        st.caption(
+            "`main` is the digest; `releases` is the separate daily releases message "
+            "(only when `digest.releases_message` is on)."
+        )
         st.dataframe(data.shown(data.recent_digests(conn, 10)), hide_index=True)
+
+        enabled = [d for d in domains if d.enabled]
+        if enabled:
+            try:
+                digest_cfg = load_config().digest
+            except ConfigError as exc:
+                st.error(f"Settings are invalid: {exc}")
+                digest_cfg = None
+            if digest_cfg is not None:
+                st.subheader("Waiting for the next digest")
+                if digest_cfg.insights or digest_cfg.releases_message:
+                    st.caption(
+                        "Items kept until shown (as in `repka digest --more`); they expire after "
+                        f"`digest.pending_max_age` ({digest_cfg.pending_max_age}). Releases are counted for the "
+                        "releases message when `digest.releases_message` is on."
+                    )
+                    waiting = data.waiting_items(conn, enabled, digest_cfg)
+                    if waiting.empty:
+                        st.info("Nothing is waiting.")
+                    else:
+                        st.dataframe(waiting, hide_index=True)
+                else:
+                    st.info("Off: `digest.insights` and `digest.releases_message` are both false, so nothing is held back.")
+
+            st.subheader("Recent releases")
+            window = st.selectbox("Window", ["24h", "7d", "30d"], index=0)
+            releases = data.recent_releases(conn, enabled, parse_duration(window))
+            if releases.empty:
+                st.info(f"No releases of accepted repos in the last {window}.")
+            else:
+                st.dataframe(data.shown(releases), hide_index=True)
 except sqlite3.Error as exc:
     st.error(f"Could not read the database (run `repka db migrate`?): {exc}")
