@@ -17,11 +17,10 @@ profile: |
 search:
   keywords:
     - ["model context protocol", "mcp server"]
-    - ["mcp client", "mcp sdk"]
   topics: [mcp, model-context-protocol]
   languages: [Python, TypeScript, Go, Rust]
   exclude: ["minecraft"]
-  min_stars: 200
+  min_stars: 300
   in: [name, description, readme]
   fork_policy: exclude
 key_files: [pyproject.toml, package.json, Cargo.toml, go.mod]

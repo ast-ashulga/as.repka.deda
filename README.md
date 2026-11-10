@@ -76,6 +76,7 @@ uv run repka domain list; uv run repka domain show <id>; uv run repka domain pla
 uv run repka run --json              # full report (stages, errors, hints, digest text) on stdout
 uv run repka digest --more           # items waiting for a later digest (read-only); repka releases lists release events
 uv run repka db stats                # row counts and the last runs
+uv run repka db prune [--apply]      # drop repos below a domain's min_stars, shrink cached READMEs, VACUUM (dry run by default)
 ```
 
 - The dashboard is for humans. Do not launch it unless asked: it is a long-running server (`uv run repka dashboard`).
@@ -328,7 +329,7 @@ The dashboard opens the database read-only (it works while `repka run` writes), 
 
 - Landscape's **Recompute** stores the map in the `landscape_cache` table.
 - The Domains page creates, edits and deletes `domains/<id>.yaml`. Deleting removes only the file: collected repos,
-  verdicts and runs stay in the database, and there is no purge option.
+  verdicts and runs stay in the database; `repka db prune` only removes repos that a remaining domain's `min_stars` no longer matches.
 
 Troubleshooting:
 

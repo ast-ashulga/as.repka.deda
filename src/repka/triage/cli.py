@@ -137,7 +137,7 @@ def _triage(args: argparse.Namespace) -> int:
             client = GitHubClient(
                 config.github_token(), cfg.github, token_source=config.github_token_source(), cache=SqliteEtagCache(conn)
             )
-        return client.readme(full_name)
+        return client.readme(full_name, cfg.triage.readme_chars)
 
     now = utcnow()
     results = []

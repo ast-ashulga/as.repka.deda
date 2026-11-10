@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 
 from repka.config import ConfigError, db_path
-from repka.store import repo
+from repka.store import prune, repo
 from repka.store.db import connect, migrate
 
 
@@ -43,3 +43,5 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     stats_cmd = db_sub.add_parser("stats", help="print the row count of every table")
     stats_cmd.set_defaults(func=_stats)
+
+    prune.register(db_sub)

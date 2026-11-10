@@ -200,12 +200,14 @@ class GitHubClient:
             raise GitHubError(f"unexpected response status {resp.status_code} for participation")
         return json.loads(value)
 
-    def readme(self, full_name: str) -> str:
+    def readme(self, full_name: str, max_chars: int | None = None) -> str:
+        """README text. `max_chars` truncates *before* the ETag cache stores it, so the cache never
+        holds a whole (sometimes half-megabyte) README when the caller only needs an excerpt."""
         resp, value = self._cached_get(
             f"/repos/{full_name}/readme",
             None,
             accept="application/vnd.github.raw+json",
-            derive=lambda r: r.text,
+            derive=lambda r: r.text if max_chars is None else r.text[:max_chars],
         )
         if resp.status_code == 404:
             return ""

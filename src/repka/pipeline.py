@@ -309,7 +309,7 @@ def build_boundaries(
             questions.update(triage_cli.question_sets(cfg, [d]))  # also validates the thresholds
         return triage.triage_domain(
             conn, d, held["backend"], questions[d.id], cfg.triage.model, cfg.triage.thresholds,
-            lambda full_name: client().readme(full_name), cfg.triage.readme_chars, iso(now),
+            lambda full_name: client().readme(full_name, cfg.triage.readme_chars), cfg.triage.readme_chars, iso(now),
             on_progress=rep.advance,
         )  # fmt: skip
 
