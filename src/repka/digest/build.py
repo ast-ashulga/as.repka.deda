@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -322,3 +322,42 @@ def build_digest(
         if section is not None:
             sections.append(section)
     return Digest(slot, local_date, sections, shown, consumed, cfg.insights, cfg.facet_min_p)
+
+
+def pending_overflow(
+    conn: sqlite3.Connection,
+    domains: list[Domain],
+    now: datetime,
+    cfg: DigestConfig,
+    slot: str,
+    local_date: str,
+) -> Digest:
+    """The items a normal build holds back (`max_items_per_domain`), as a digest of their own.
+
+    Builds twice, without the limit and as configured, and subtracts by (domain, repo, line kind).
+    Pure read, like `build_digest`; the event id lists are empty and no section carries a `more`.
+    """
+    everything = build_digest(conn, domains, now, replace(cfg, max_items_per_domain=10**9), slot, local_date)
+    normal = build_digest(conn, domains, now, cfg, slot, local_date)
+    shown = {
+        (i.domain_id, i.repo_id, i.line_kind)
+        for s in normal.sections
+        for i in (*s.new_repos, *s.releases, *s.movers, *s.stack_changes)
+    }
+
+    def held(items: list[DigestItem]) -> list[DigestItem]:
+        return [i for i in items if (i.domain_id, i.repo_id, i.line_kind) not in shown]
+
+    sections = []
+    for s in everything.sections:
+        left = DigestSection(
+            s.domain_id,
+            s.domain_name,
+            new_repos=held(s.new_repos),
+            releases=held(s.releases),
+            movers=held(s.movers),
+            stack_changes=held(s.stack_changes),
+        )
+        if left.item_count:
+            sections.append(left)
+    return Digest(slot, local_date, sections, [], [], cfg.insights, cfg.facet_min_p)

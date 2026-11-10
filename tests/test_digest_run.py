@@ -160,3 +160,48 @@ def test_recording_a_slot_that_already_exists_does_not_raise(conn):  # a concurr
     digest = build_digest(conn, [DOMAIN], NOW, CFG.digest, *DUE)
     _record_sent(conn, digest, NOW)  # IntegrityError before the fix
     assert conn.execute("SELECT COUNT(*) FROM digests WHERE slot = '19:30'").fetchone()[0] == 1
+
+
+def _home_with_three_repos(home, limit=2):
+    conn = make_db(home / ".state" / "repka.db")
+    for r in (1, 2, 3):
+        add_repo(conn, r, stars=100 * r)
+        add_verdict(conn, r, True, substance=5 - r)  # 1 first, 3 last
+        add_event(conn, r, "new_repo")
+    conn.commit()
+    conn.close()
+    (home / "domains").mkdir()
+    (home / "domains" / "d1.yaml").write_text(
+        "id: d1\nname: MCP\nenabled: true\nprofile: p\nsearch:\n  keywords: [[mcp]]\n", encoding="utf-8"
+    )
+    (home / ".config.yaml").write_text(f"digest:\n  max_items_per_domain: {limit}\n", encoding="utf-8")
+
+
+def test_cli_more_prints_held_back_and_exits_0(home, monkeypatch, capsys):
+    _home_with_three_repos(home)
+    monkeypatch.setattr(digest_cli, "make_sender", lambda cfg: Boom())
+    assert main(["digest", "--more"]) == 0
+    out = capsys.readouterr().out
+    assert "o/r3" in out and "o/r1" not in out and "o/r2" not in out
+    check = make_db(home / ".state" / "repka.db")
+    assert check.execute("SELECT COUNT(*) FROM digests").fetchone()[0] == 0
+    assert check.execute("SELECT COUNT(*) FROM events WHERE digest_id IS NOT NULL").fetchone()[0] == 0
+    check.close()
+
+
+def test_cli_more_nothing_held_back(home, capsys):
+    _home_with_three_repos(home, limit=10)
+    assert main(["digest", "--more"]) == 0
+    assert capsys.readouterr().out.strip() == "nothing held back"
+
+
+def test_cli_more_without_database_is_a_config_error(home, capsys):
+    assert main(["digest", "--more"]) == 2
+    assert "no database" in capsys.readouterr().err
+
+
+def test_cli_more_conflicts_with_send(home, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["digest", "--more", "--send"])
+    assert exc.value.code == 2
+    assert "not allowed with" in capsys.readouterr().err

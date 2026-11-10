@@ -4,7 +4,7 @@ import pytest
 from helpers_digest import add_event, add_repo, add_snapshot, add_verdict
 
 from repka.config import DigestConfig
-from repka.digest.build import MAX_FACETS, build_digest, facet_tags
+from repka.digest.build import MAX_FACETS, build_digest, facet_tags, pending_overflow
 from repka.domain.schema import Domain, SearchSpec
 
 from helpers_digest import make_db
@@ -400,3 +400,48 @@ def test_insights_order_puts_releases_last(conn):
     off = build(conn, DigestConfig(max_items_per_domain=3))
     assert [i.line_kind for i in items(off)] == ["new", "release", "mover"]
     assert off.sections[0].more_by_kind == {"stack": 1}
+
+
+def overflow(conn, cfg):
+    return pending_overflow(conn, [DOMAIN], NOW, cfg, "08:30", "2026-11-07")
+
+
+@pytest.mark.parametrize("insights", [False, True])
+def test_pending_overflow_returns_only_held_back_items(conn, insights):
+    _three_new(conn)
+    cfg = DigestConfig(max_items_per_domain=2, insights=insights)
+    d = overflow(conn, cfg)
+    [section] = d.sections
+    assert [i.repo_id for i in section.new_repos] == [3]  # the lowest-ranked repo
+    assert section.more == 0 and section.more_by_kind == {}
+    assert d.item_count == 1 and d.insights is insights
+    assert d.shown_event_ids == [] and d.consumed_event_ids == []
+
+
+def test_pending_overflow_empty_when_nothing_is_held_back(conn):
+    _three_new(conn)
+    assert overflow(conn, DigestConfig(max_items_per_domain=3)).sections == []
+    assert overflow(conn, DigestConfig(max_items_per_domain=3)).item_count == 0
+
+
+def test_pending_overflow_spans_kinds_and_domains(conn):
+    for r in (1, 2, 3):
+        add_repo(conn, r, stars=100 * r)
+        add_verdict(conn, r, True)
+    add_event(conn, 1, "new_repo")
+    add_event(conn, 2, "stack_changed", {"path": "p", "added": ["a"], "removed": []})
+    add_event(conn, 3, "release", {"tag": "v1"})
+    d = overflow(conn, DigestConfig(max_items_per_domain=1, insights=True))
+    [section] = d.sections
+    assert sorted(i.line_kind for i in items(d)) == ["release", "stack"]
+    assert section.more == 0
+
+
+def test_pending_overflow_writes_nothing(conn):
+    _three_new(conn)
+    conn.commit()
+    before = conn.total_changes
+    overflow(conn, DigestConfig(max_items_per_domain=2, insights=True))
+    assert conn.total_changes == before
+    assert conn.execute("SELECT COUNT(*) FROM events WHERE digest_id IS NOT NULL").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM digests").fetchone()[0] == 0

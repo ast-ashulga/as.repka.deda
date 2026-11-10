@@ -1,4 +1,4 @@
-"""`repka digest [--slot HH:MM] [--send] [--dry-run]`."""
+"""`repka digest [--slot HH:MM] [--send | --dry-run | --more]`."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 from repka import config
 from repka.config import AppConfig, ConfigError, load_config
-from repka.digest.build import build_digest
+from repka.digest.build import build_digest, pending_overflow
 from repka.digest.render import render_digest, split_messages
 from repka.digest.run import DigestOutcome, run_digest
 from repka.digest.slots import parse_slot
@@ -51,7 +51,34 @@ def _preview_anyway(conn, domains, cfg: AppConfig, now: datetime) -> int:
     return 0
 
 
+def _more(args: argparse.Namespace) -> int:
+    """`--more`: the items a normal digest holds back right now. Read-only; nothing is sent or recorded."""
+    cfg = load_config()
+    if args.slot is not None:
+        parse_slot(args.slot)
+    path = config.db_path()
+    if not path.exists():
+        raise ConfigError(f"no database at {path}; run `repka db migrate` first")
+    domains = [d for d in load_domains() if d.enabled]
+    local = datetime.now(UTC).astimezone()
+    slot = args.slot or _latest_passed_slot(cfg.digest.slots, local)
+    day = local.date().isoformat()
+    conn = connect(readonly=True)
+    try:
+        digest = pending_overflow(conn, domains, datetime.now(UTC), cfg.digest, slot, day)
+    finally:
+        conn.close()
+    parts = split_messages(render_digest(digest))
+    if not parts:
+        print("nothing held back")
+    else:
+        _print_parts(f"[more] slot {slot} {day}: {digest.item_count} held-back item(s), {len(parts)} message(s)", parts)
+    return 0
+
+
 def _cmd_digest(args: argparse.Namespace) -> int:
+    if args.more:
+        return _more(args)
     return run_exclusive(lambda: _digest(args), enabled=args.send)  # a send writes state: one at a time
 
 
@@ -113,4 +140,5 @@ def register(sub: argparse._SubParsersAction) -> None:
     mode = digest.add_mutually_exclusive_group()
     mode.add_argument("--send", action="store_true", help="send via Telegram and record the slot")
     mode.add_argument("--dry-run", action="store_true", help="preview only (this is the default)")
+    mode.add_argument("--more", action="store_true", help="list the items a digest holds back (over the per-domain limit); read-only")
     digest.set_defaults(func=_cmd_digest)
