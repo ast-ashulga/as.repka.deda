@@ -163,11 +163,12 @@ def test_status_cli_no_file(home, capsys):
     assert json.loads(capsys.readouterr().out)["state"] == "none"
 
 
-def test_status_cli_warns_on_stale_heartbeat(home, capsys):
-    state = write_file(home, updated_epoch=time.time() - 300)
+def test_status_cli_warns_when_the_heartbeat_is_lost(home, capsys):
+    state = write_file(home, updated_epoch=time.time() - 300, progress_epoch=time.time() - 300)
     with RunLock(state / "run.lock"):
         assert main(["status"]) == 0
-    assert "may be stuck" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "heartbeat lost for 5m00s" in out and "stopped or frozen" in out
 
 
 def test_status_module_is_registered():
@@ -229,3 +230,45 @@ def test_status_cli_lock_held_without_any_snapshot_is_busy(home, capsys):
         assert capsys.readouterr().out.startswith("busy: another repka process holds the run lock")
         assert main(["status", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "busy"
+
+
+def test_heartbeat_thread_does_not_fake_progress(tmp_path):
+    import threading
+
+    wall = Clock(1_700_000_000.0)
+    path = tmp_path / "progress.json"
+    sink = StatusFileSink(path, 1, 1, "plain", Clock(), wall, heartbeat_thread=True, heartbeat_s=0.02)
+    p = RunProgress(clock=Clock(), wall=wall, sinks=[sink])
+    p.plan(["triage"])
+    p.stage_start("triage", steps=1)
+    first = read_status(path)
+    wall.now += 600  # ten silent minutes: only the beat thread runs
+    deadline = time.monotonic() + 3
+    while read_status(path)["updated_epoch"] == first["updated_epoch"] and time.monotonic() < deadline:
+        threading.Event().wait(0.02)
+    now = read_status(path)
+    assert now["updated_epoch"] > first["updated_epoch"]  # alive
+    assert now["progress_epoch"] == first["progress_epoch"]  # but nothing advanced
+    p.finish("ok")
+
+
+def test_status_cli_shows_both_ages_and_a_slow_chunk_is_not_a_warning(home, capsys):
+    state = write_file(home, updated_epoch=time.time() - 2, progress_epoch=time.time() - 400)  # a 400 s worker chunk
+    with RunLock(state / "run.lock"):
+        assert main(["status"]) == 0
+        out = capsys.readouterr().out
+        assert "heartbeat 2s ago" in out and "last progress 6m40s ago" in out
+        assert "stuck" not in out and "lost" not in out
+        assert main(["status", "--json"]) == 0
+    obj = json.loads(capsys.readouterr().out)
+    assert obj["stale"] is False and 395 < obj["progress_age_s"] < 420
+
+
+def test_status_cli_warns_when_progress_is_silent_for_very_long(home, capsys):
+    state = write_file(home, updated_epoch=time.time() - 2, progress_epoch=time.time() - 3600)
+    with RunLock(state / "run.lock"):
+        assert main(["status"]) == 0
+        out = capsys.readouterr().out
+        assert "no progress for 1h00m" in out and "may be stuck" in out and "lost" not in out
+        assert main(["status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["stale"] is True

@@ -115,10 +115,12 @@ is still observable). Fields: `schema` (1), `pid`, `run_id`, `status` (`running|
 `started_at`, `updated_at` (heartbeat, refreshed at least every 5 s while work advances), `stages[]` (name,
 status, seconds, items), `current` {stage, step, unit, done, total, detail, rate, eta_seconds}, `overall`
 {eta_seconds, eta_is_lower_bound, eta_at}.
-A daemon thread refreshes `updated_epoch` every 5 s even when no event arrives (one long worker call), so a quiet run
-is not mistaken for a stuck one. `repka status [--json]`: the lock is the truth. It tries a non-blocking flock on `run.lock`: acquired means no run
+A daemon thread refreshes `updated_epoch` (the heartbeat: the process is alive) every 5 s even when no event arrives
+(one long worker call); `progress_epoch` moves only with real events (work is advancing), so a quiet run is told
+from a frozen process and a hung worker is not hidden behind a fresh heartbeat. `repka status [--json]`: the lock is the truth. It tries a non-blocking flock on `run.lock`: acquired means no run
 is alive (file with `status: running` is reported as "not running; last run died at ..."), busy means a live run
-(snapshot shown, plus "no heartbeat for Ns, may be stuck" past 120 s) **when the snapshot says `running` and its pid
+(snapshot, heartbeat age and last-progress age; a warning "heartbeat lost" past 120 s, and "no progress ... may be
+stuck" past 15 min, generous because one triage chunk of 200 repos takes about 7 min) **when the snapshot says `running` and its pid
 exists**; a held lock without that (`repka collect`, `triage`, `digest --send` take the same lock) is `busy`. Exit 0 whenever the state can be
 reported; 2 only on usage/config errors.
 

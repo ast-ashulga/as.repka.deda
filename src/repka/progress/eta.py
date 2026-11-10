@@ -15,7 +15,9 @@ EWMA_ALPHA = 0.3  # weight of the newest throughput sample
 LINES_INTERVAL_S = 10.0  # `lines` mode: at most one progress line per this many seconds
 JSONL_INTERVAL_S = 1.0  # `jsonl` mode: at most one progress event per second
 HEARTBEAT_S = 5.0  # status file: refresh at least this often while work advances
-STALE_HEARTBEAT_S = 120.0  # `repka status`: warn when the heartbeat is older than this
+STALE_HEARTBEAT_S = 120.0  # `repka status`: the process holds the lock but stopped refreshing the file
+STALE_PROGRESS_S = 900.0  # `repka status`: no progress event for this long is worth a warning (a triage chunk of
+#                           200 repos takes ~7 min at 2 s per repo, so this is deliberately generous)
 HISTORY_RUNS = 5  # runs that did work in a stage, newest first, whose median predicts it
 
 

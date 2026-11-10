@@ -54,8 +54,9 @@ def liveness(state_dir: Path) -> Literal["running", "idle"]:
 class StatusFileSink:
     """A progress sink that keeps the snapshot file current: always on stage/step/finish events, as a heartbeat
     at most every HEARTBEAT_S on progress and note events, and (with `heartbeat_thread`) by a daemon thread that
-    refreshes `updated_epoch` while no event arrives, e.g. during one long worker call, so `repka status` can tell
-    a quiet run from a stuck one."""
+    refreshes `updated_epoch` (heartbeat) while no event arrives, e.g. during one long worker call. `progress_epoch`
+    moves only with real events, so `repka status` can tell a quiet run (alive, no event for a while) from a frozen
+    process (no heartbeat), and shows how long it has been since work last advanced."""
 
     def __init__(
         self,
@@ -73,6 +74,7 @@ class StatusFileSink:
         self._started_epoch = wall()
         self._last_write = float("-inf")
         self._data: dict[str, Any] | None = None
+        self._progress_epoch = wall()  # last real event; the heartbeat thread never touches it
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._want_thread, self._interval = heartbeat_thread, heartbeat_s
@@ -84,6 +86,7 @@ class StatusFileSink:
                 pass
 
     def on_event(self, event: str, snap: dict[str, Any], payload: dict[str, Any]) -> None:
+        self._progress_epoch = self._wall()
         now = self._clock()
         if event in ("progress", "note") and now - self._last_write < HEARTBEAT_S:
             return
@@ -95,7 +98,8 @@ class StatusFileSink:
                 "run_id": self._run_id,
                 "mode": self._mode,
                 "started_epoch": self._started_epoch,
-                "updated_epoch": self._wall(),
+                "updated_epoch": self._wall(),  # heartbeat: the process is alive
+                "progress_epoch": self._progress_epoch,  # last real event: work is advancing
                 **snap,
             }
             self._write()
@@ -117,4 +121,5 @@ class StatusFileSink:
                 if self._stop.is_set() or self._data is None:
                     return
                 self._data["updated_epoch"] = self._wall()
+                self._data["progress_epoch"] = self._progress_epoch  # events that were throttled out of a write
                 self._write()

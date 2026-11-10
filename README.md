@@ -222,12 +222,14 @@ uv run repka run --progress jsonl 2> run.events.jsonl
 From another terminal or an agent, while a run is going (any mode, including a scheduled one):
 
 ```bash
-uv run repka status          # stage, step, done/total, elapsed, eta, heartbeat age; or how the last run ended
+uv run repka status          # stage, step, done/total, elapsed, eta, heartbeat and last-progress age; or how the last run ended
 uv run repka status --json   # the same as JSON; state is running | idle | died | none
 ```
 
 `repka status` trusts the run lock, not the file: a snapshot that says `running` while no process holds the lock
-is shown as `died`. The ETA is "at the current pace": it needs a few seconds and one finished unit, later stages are
+is shown as `died`. A lock held by another command (for example `repka collect`) is shown as `busy`. The
+heartbeat proves the process is alive; "last progress" is the last real event, so a silent worker call is
+distinguishable from a frozen process (warnings: heartbeat lost after 2 minutes, no progress after 15). The ETA is "at the current pace": it needs a few seconds and one finished unit, later stages are
 estimated from your last runs (stored in `runs.stats_json`), and when a part has no estimate you see a lower bound
 (`eta >2m`) or `eta ?` instead of a guess. Triage progress moves in chunks of 200 repos because the model worker
 answers per chunk.
