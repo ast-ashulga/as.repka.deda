@@ -1,14 +1,14 @@
 # repka deda
 
 repka deda watches GitHub for repositories in technology domains you define (for example "MCP servers"),
-decides locally which of them are relevant, and sends you a short Telegram digest twice a day:
-new repos, fresh releases, star movers and dependency changes. Optionally the digest shows what is
+decides locally which of them are relevant, and sends you a short Telegram digest at the times you set
+(`digest.slots`, by default 08:30 and 19:30): new repos, fresh releases, star movers and dependency changes. Optionally the digest shows what is
 different about each project (facet tags) and releases go in their own daily message. Everything except the
 GitHub API calls and the Telegram messages stays on your Mac.
 
 Pipeline: **collect** (GitHub search + GraphQL snapshots) -> **triage** (local decider model) ->
 **embed** (local Ollama, for "similar repos") -> **digest** (Telegram). `repka run` does one pass;
-launchd runs it hourly. An optional local dashboard shows the same data in a browser.
+launchd runs it hourly, or at fixed daily times if you prefer (see [Scheduling](#scheduling-launchd)). An optional local dashboard shows the same data in a browser.
 
 ## Requirements
 
@@ -60,6 +60,7 @@ uv run repka notify login            # one time: phone, code, 2FA
 uv run repka notify test "hello"     # needs notify.enabled: true
 uv run repka run --send              # deliver the due slot once; run it again: nothing is sent twice
 uv run repka schedule install        # hourly launchd agent (set notify.enabled and run.send to true first)
+                                     # or fixed daily times: --at 22:00,09:00
 ```
 
 Optional, once data is flowing: a browser view of the same data, see [Dashboard](#dashboard).
@@ -104,7 +105,10 @@ uv run repka domain plan example-mcp   # the GitHub queries (keywords x language
 ```
 
 The `profile` text is what the decider model reads, so it should state what is in scope, what is out of scope
-and give examples. Keep `min_stars` and the languages tight for a first run: a README keyword such as
+and give examples. `min_stars` is the main lever on data volume: `domains/mcp.yaml` uses 300 and a single keyword group, which keeps a
+domain at a few thousand repos instead of tens of thousands. After raising it, run `repka db prune` (see
+[Keeping the database small](#keeping-the-database-small)) to drop what no longer matches.
+Keep `min_stars` and the languages tight for a first run: a README keyword such as
 "mcp server" matches over a thousand repositories per language even for a 5-day window at 50 stars, and the first
 scan stores every hit (bounded by `collect.max_repos_per_domain_scan`, after which the run is `partial` and the next
 run continues). Keyword groups search `description` and `readme` (`name` is dropped for groups with a phrase, because
@@ -118,8 +122,11 @@ on a large domain.
 
 ## Configuration
 
-`.config.yaml` (tracked defaults, every key optional, every flag `false`) holds all settings; unknown keys and
-wrong types are rejected at startup naming the key. The full key list with comments is in
+`.config.yaml` holds all settings; every key is optional, and the defaults built into the code (the ones in the table
+below and in the architecture doc) have every flag `false`. The `.config.yaml` tracked in a checkout is just a
+file of overrides: on the author's machine it already switches triage, embeddings and sending on, so read it before
+assuming what a run will do (`repka doctor` shows the effect). Unknown keys and wrong types are rejected at startup
+naming the key. The full key list with comments is in
 [wiki/spec/architecture.md § 3](wiki/spec/architecture.md#3-configuration). Secrets live only in `.env`
 (copy `.env.example`): `REPKA_GITHUB_TOKEN` (optional, empty = `gh auth token`), `REPKA_TG_API_ID`,
 `REPKA_TG_API_HASH`. Logs go to `logs/repka.log`.
@@ -133,6 +140,9 @@ The switches that matter:
 | `notify.enabled` | false | Telegram delivery is allowed |
 | `run.send` | false | `repka run` delivers digests (also needs `notify.enabled`); `--send` does the same for one run |
 | `collect.first_window` | 365d | backfill window of a domain's first scan |
+| `collect.enrich_batch` | 50 | repos per GraphQL query; if GitHub answers with many HTTP 502 (counted as retries in the run's enrich stats), lower it to 25 |
+| `collect.accepted_refresh_every` | 0s (every scan) | accepted repos that the search did not match are re-snapshotted at most this often, e.g. `20h` for a daily scan. On a large domain this is what keeps a scan short and `snapshots` small; repos the search matched are always refreshed |
+| `run.progress` | plain | stderr view of `repka run`: `plain`, `live`, `lines` or `jsonl` (see [Watching a run](#watching-a-run-phase-progress-eta)) |
 | `digest.slots` | 08:30, 19:30 | local times at which a digest is due |
 | `digest.insights` | false | richer digest items (description, kind, facet tags, legend) and overflow new/found/release items kept pending (listed by `repka digest --more`) |
 | `digest.releases_message` | false | releases go in their own daily message at `digest.releases_slot` (default 09:00) |
@@ -152,6 +162,33 @@ The first scan of a domain (window `collect.first_window`) is a silent baseline:
 A GitHub rate limit stops the run cleanly (status `partial`, exit 0); what was collected is kept and the
 next `repka collect` continues (a partial domain is due again at once). After a completed scan, running
 it again right away reports the domain as not due.
+
+## Keeping the database small
+
+Everything lives in `.state/repka.db`. A large domain grows it through repos that stop matching, through one
+snapshot per repo per scan, and through the HTTP cache (README bodies). Since the cache keeps only the first
+`triage.readme_chars` (4000) characters of a README, it no longer holds full bodies; the rest is cleaned with
+`repka db prune`, which is a dry run until you pass `--apply`:
+
+```bash
+uv run repka db prune                       # dry run: exact counts, nothing changes (it rolls back)
+uv run repka db prune --apply               # takes the run lock, deletes, then VACUUMs and prints the file size before/after
+uv run repka db prune --apply --snapshot-days 0   # keep every snapshot (default thins snapshots older than 90 days)
+```
+
+What `--apply` removes:
+
+- repos whose latest snapshot has fewer stars than the domain's `search.min_stars` leave that domain (with that domain's
+  verdicts); repos with no snapshot stay;
+- repos that no domain holds any more are deleted with their snapshots, key files, events, verdicts, embeddings and
+  cached HTTP bodies; repos that appear in a recorded digest are kept so digest history stays readable;
+- cached README bodies are cut to `triage.readme_chars`;
+- snapshots older than `--snapshot-days` (default 90) are thinned to the last one of each ISO week per repo; a repo's
+  latest snapshot and everything newer are never touched.
+
+Run it after tightening a domain (`min_stars`, keywords) or now and then (for example monthly). Nothing prunes
+automatically, and deleting a domain file does not purge its data either. Measured on a real `mcp` domain: 335 MB
+to 73 MB after the first prune.
 
 ## Triage and embeddings
 
@@ -294,7 +331,9 @@ Without the two switches nothing changes: the digest keeps its current format an
 ## Scheduling (launchd)
 
 Nothing is scheduled until you ask for it. `repka schedule install` writes a launchd user agent that runs
-`repka run` hourly; it sends digests only when `notify.enabled` and `run.send` are both true.
+`repka run` every hour (or, with `--at`, at fixed local times every day; a run missed while the Mac slept starts on
+wake). A run only does work for domains that are due (`scan_every`), so an hourly agent is cheap; it sends digests
+only when `notify.enabled` and `run.send` are both true. A run takes the run lock, so it never overlaps a manual one.
 
 ```bash
 uv run repka schedule install --dry-run   # print the plist, change nothing
@@ -348,6 +387,9 @@ Start with `uv run repka doctor` and the `hints:` at the end of `uv run repka ru
 | `error: ... GitHub rejected the token` | The token expired or was revoked. Fix as printed: `gh auth login`, or replace `REPKA_GITHUB_TOKEN` in `.env`. |
 | Run is `partial` with "rate limit" | GitHub search allows 30 requests a minute and the API has hourly limits. Collected data is kept; the next run continues. Narrow the domain (`min_stars`, `languages`, a shorter `first_window`) if it keeps happening. |
 | Digest is empty | Normal for the first scan of a domain (silent baseline), when `triage.enabled` is false (nothing is accepted), or when nothing new happened since the last slot. See the run hints. |
+| A scan of a big domain takes half an hour or more | Most of it is enrichment: every accepted repo is re-snapshotted on each scan. Set `collect.accepted_refresh_every: 20h` (for a daily scan). Check where the time went with `repka status` during a run and `repka db stats` after. |
+| Many `enrich: batch of N failed ... retrying as` warnings in `logs/repka.log` | GitHub rejected heavy GraphQL batches (5xx, often 502). A failing batch is retried as two halves, and a repo that keeps failing is skipped until the next run. If it happens a lot, lower `collect.enrich_batch` (25 is safe). |
+| `.state/repka.db` keeps growing | `uv run repka db prune` (dry run), then `--apply`; see [Keeping the database small](#keeping-the-database-small). Raising a domain's `min_stars` is the lasting fix. |
 | Domain collected 0 repos | Look at `repka domain plan <id>` and try one query with `gh api -X GET search/repositories -f q='<query> pushed:>=2026-01-01'`. Keep `min_stars` and `languages` realistic for your window. |
 | `triage-venv ... is missing` / weights missing | `./deciders/setup.sh`, then `./deciders/setup.sh --download d1-3B`. |
 | Run is `partial` with a worker error (`WorkerError`) | The decider process crashed or timed out (`triage.timeout_s`). The repos stay pending and the next run retries; run `repka -v triage --limit 5` to see the worker's output. |

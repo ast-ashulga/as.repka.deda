@@ -1,6 +1,6 @@
 ---
 name: repka-guide
-description: User guide and interactive operator for the repka CLI (repka deda, the local GitHub-monitoring tool with Telegram digests). Use whenever the user wants to set up, configure, reconfigure, launch, run, schedule, pause, stop or troubleshoot repka, open or launch the local dashboard, asks "how do I use repka", "how do I start/stop it", "why is my digest empty", wants to change digest times, domains, Telegram target, triage/embedding settings or the launchd schedule, or asks what state repka is in. Interviews the user about needs and intent, then makes the changes and runs the commands with their approval. Not for defining a new monitoring domain from scratch (use domain-profile for that) and not for developing repka's code.
+description: User guide and interactive operator for the repka CLI (repka deda, the local GitHub-monitoring tool with Telegram digests). Use whenever the user wants to set up, configure, reconfigure, launch, run, schedule, pause, stop or troubleshoot repka, check what a running pass is doing, shrink or prune the database, speed up long scans, open or launch the local dashboard, asks "how do I use repka", "how do I start/stop it", "why is my digest empty", wants to change digest times, domains, Telegram target, triage/embedding settings or the launchd schedule, or asks what state repka is in. Interviews the user about needs and intent, then makes the changes and runs the commands with their approval. Not for defining a new monitoring domain from scratch (use domain-profile for that) and not for developing repka's code.
 ---
 
 # repka guide
@@ -27,10 +27,13 @@ Run these (read-only) and summarise them in a table: what is on, what is missing
 uv run repka doctor --json          # ok/errors/warnings + the exact fix for each problem
 uv run repka domain list            # domains, enabled, scan interval
 uv run repka schedule status        # is the launchd agent loaded, last exit code
+uv run repka status                 # is a pass running right now (stage, progress, ETA) or how the last one ended
 uv run repka db stats               # row counts and recent runs (0 rows = never run)
 ```
 
-Also read `.config.yaml` (not `.env`) and note these values: `triage.enabled`, `embed.enabled`, `notify.enabled`, `run.send`, `digest.slots`, `notify.chat_id`, `collect.first_window`. The file is the source of truth for defaults; `references/config-reference.md` explains each key.
+Also read `.config.yaml` (not `.env`) and note these values: `triage.enabled`, `embed.enabled`, `notify.enabled`, `run.send`, `digest.slots`, `notify.chat_id`, `collect.first_window`, `collect.accepted_refresh_every`. The file is the source of truth: the tracked `.config.yaml` is a set of overrides and on this machine it may already have triage, embeddings and sending switched on, even though the code defaults are all `false`. Do not assume a fresh install. `references/config-reference.md` explains each key.
+
+If `repka status` says a run is going, do not start another `run`, `collect`, `triage`, `embed` or `db prune --apply`: they share the run lock and would just report it busy.
 
 If `doctor` is not available (for example `uv` is missing), the user has not completed the install; go to the setup playbook from the top.
 
@@ -43,12 +46,13 @@ If their message already says what they want ("stop it", "change digest to 9:00"
 - **Run it now** (preview or real send) → playbook C
 - **Pause or stop it** → playbook D
 - **Open the dashboard** → playbook F
+- **Database too big, scans too slow, too many repos** → playbook G
 - **Something is wrong / empty digest / error** → playbook E, and `references/troubleshooting.md`
 - **Just explain how it works** → answer from "How it works" below, no changes
 
 ## How it works (for explanations)
 
-`repka run` is one pass: **collect** (GitHub search plus GraphQL snapshots for domains that are due) → **triage** (local decider model decides relevance) → **embed** (local Ollama, powers `repka similar`) → **digest** (built at slots 08:30 and 19:30, sent via Telegram only if sending is on). A failing stage never blocks the digest; the next run continues. Two runs never overlap. The first scan of a domain is a silent baseline: no "new repo" events, so the first digest is empty on purpose. Nothing runs by itself until `repka schedule install`, and that agent runs `repka run` hourly. The optional dashboard (`repka dashboard`, playbook F) is a read-only browser view of the same database; it cannot send or schedule anything.
+`repka run` is one pass: **collect** (GitHub search plus GraphQL snapshots for domains that are due) → **triage** (local decider model decides relevance) → **embed** (local Ollama, powers `repka similar`) → **digest** (built at the `digest.slots`, default 08:30 and 19:30, sent via Telegram only if sending is on; optionally an insights format and a separate daily releases message). A failing stage never blocks the digest; the next run continues. Two runs never overlap. A run only collects domains that are due (`scan_every`, for example 20h), so a scheduled run that finds nothing due is quick. The first scan of a domain is a silent baseline: no "new repo" events, so the first digest is empty on purpose. Nothing runs by itself until `repka schedule install`; that agent runs `repka run` hourly, or daily at fixed times with `--at HH:MM,...`. While a pass runs, `repka status` shows stage, progress and ETA from another terminal. Data volume is controlled by each domain's `search.min_stars` and keywords, by `collect.accepted_refresh_every`, and by `repka db prune` (playbook G). The optional dashboard (`repka dashboard`, playbook F) is a read-only browser view of the same database; it cannot send or schedule anything.
 
 ## Playbook A: set up from scratch
 
@@ -71,7 +75,7 @@ Walk the list in order; stop and fix whatever `doctor` flags before moving on. A
    - Ask where digests go: `notify.chat_id` is `"me"` (Saved Messages, the default), a numeric id or `@username`.
    - With an explicit yes: set `notify.enabled: true`, then `uv run repka notify test "hello"`.
    - `uv run repka doctor --send` lists anything still missing.
-7. **Scheduling (only if wanted):** explain what it does (hourly `repka run` through a launchd user agent, does not start at login, sends only when `notify.enabled` and `run.send` are both true). With an explicit yes for `run.send: true` and another for the install: `uv run repka schedule install --dry-run` (show the plist, no secrets in it), then `uv run repka schedule install` (`--interval 30m` to change the period), then `uv run repka schedule status`.
+7. **Scheduling (only if wanted):** explain what it does (`repka run` through a launchd user agent, every hour by default or daily at chosen times; does not start at login; a run missed while the Mac slept starts on wake; sends only when `notify.enabled` and `run.send` are both true). Ask which they prefer: hourly (cheap, since only due domains are collected) or fixed times such as `--at 22:00,09:00` (match one of them to the digest slot). With an explicit yes for `run.send: true` and another for the install: `uv run repka schedule install --dry-run` (show the plist, no secrets in it), then `uv run repka schedule install` (`--interval 30m` to change the period, or `--at HH:MM,...` instead; the two are exclusive), then `uv run repka schedule status`.
 
 End by summarising what is now on, what runs automatically, and how to stop it (playbook D) in two lines.
 
@@ -85,7 +89,11 @@ First say which keys you are going to change and why, then edit only those keys 
 | Bigger/smaller digest | `digest.max_items_per_domain` | |
 | Fewer false positives / more recall | `triage.thresholds: {relevant: 0.70, substance: 2}` | Higher = stricter. Existing verdicts are kept; only new or changed repos use the new thresholds |
 | Different Telegram target | `notify.chat_id` | Needs sending to be on to matter |
-| Change run period | `uv run repka schedule install --interval 30m` | Replaces the old agent; needs a "yes" like a fresh install |
+| Change run period | `uv run repka schedule install --interval 30m`, or daily at fixed times `--at 22:00,09:00` | Replaces the old agent; needs a "yes" like a fresh install |
+| Watch a pass | `run.progress: live` (terminal) / `lines` (log files) / `jsonl` (scripts), or `uv run repka run --progress MODE`; `uv run repka status` from another terminal | Default is `plain`; display only, no consent needed |
+| Shorter scans on a big domain | `collect.accepted_refresh_every: 20h` (for a daily scan) | Accepted repos the search did not match are refreshed at most this often; `0s` = every scan |
+| Fewer 502s from GraphQL | `collect.enrich_batch: 25` (default 50) | Only if the log shows many `enrich: batch ... failed` warnings |
+| Fewer repos in a domain | raise `search.min_stars` or drop a keyword group in `domains/<id>.yaml`, then `db prune` | See playbook G |
 | Add a topic | new domain (domain-profile skill) | |
 | Tune/disable a domain | edit `domains/<id>.yaml` (`enabled`, `scan_every`, `min_stars`, `languages`) | Use `uv run repka domain plan <id>` to preview queries |
 | Move home / rehearse | `REPKA_HOME=<dir>` | After moving `gh`/`uv` or changing `REPKA_HOME`, re-run `schedule install` |
@@ -101,6 +109,8 @@ Ask which they want, then run it:
 - **Real send, once:** needs `notify.enabled: true`; with an explicit yes, `uv run repka run --send`. Running it again sends nothing twice.
 - **Digest only:** `uv run repka digest` previews the pending digest; `--slot HH:MM` previews as that slot.
 
+A first scan, or a scan of a domain with thousands of accepted repos, can take from several minutes to over half an hour. Suggest `--progress live` in a terminal (the user runs it with `!`), and from another shell `uv run repka status` shows stage, `done/total`, elapsed and ETA; a state of `died` means the process is gone and the next run resumes. A pass started by launchd shows up in `repka status` too.
+
 Read the output to the user: status (ok / partial / failed), counts per stage, and the `hints:` at the end, which explain why a pass did less than expected. `partial` (exit 0) means a stage hit a rate limit or a worker crashed and the next run continues; it is not an emergency.
 
 ## Playbook D: pause or stop
@@ -109,9 +119,9 @@ Ask what "stop" means to them, because there are levels and the right one depend
 
 | Goal | Action |
 |---|---|
-| Stop a pass that is running right now | `pgrep -fl "repka run"` to find it, then `kill <pid>` (SIGTERM). The run lock is released by the OS and the next run resumes; collected data is kept. Confirm with the user before killing. |
+| Stop a pass that is running right now | `uv run repka status` to confirm it is running (`--json` includes the pid), or `pgrep -fl "repka run"`, then `kill <pid>` (SIGTERM). The run lock is released by the OS and the next run resumes; collected data is kept. Confirm with the user before killing. |
 | Stop messages but keep collecting | `run.send: false` (and/or `notify.enabled: false`). Events stay pending, so the first digest after resuming may contain old events (known limitation); tell the user |
-| Stop the hourly automatic runs | `uv run repka schedule uninstall` (idempotent; unloads the agent and removes the plist). Verify with `uv run repka schedule status`. Config, domains and data are untouched |
+| Stop the automatic runs (hourly or daily-at-times) | `uv run repka schedule uninstall` (idempotent; unloads the agent and removes the plist). Verify with `uv run repka schedule status`. Config, domains and data are untouched |
 | Stop watching one topic | `enabled: false` in `domains/<id>.yaml` |
 | Skip the heavy stages | `triage.enabled: false` / `embed.enabled: false` |
 | Full stop | uninstall the schedule, set `run.send` and `notify.enabled` to `false`, then confirm with `schedule status` and `pgrep` |
@@ -131,11 +141,20 @@ Run `uv run repka doctor` first, then look at the `hints:` of the last `uv run r
    - Home and Analytics: a database. Analytics star deltas show "n/a" until a snapshot about a week old exists.
    - Domains: works from the domain files alone; scan status needs the database.
    - Landscape: `embed.enabled: true`, then `uv run repka embed` (needs Ollama). If the domain's `fork_policy` is `exclude`, the page says so.
-5. **Writes (only two):** Landscape's **Recompute** stores the map in the `landscape_cache` table. The Domains page creates, edits and deletes `domains/<id>.yaml`; deleting removes only the file (collected data stays, no purge option). After page edits, tell the user which files changed (`git status`) and leave committing to them (ground rule 5).
+5. **Writes (only two):** Landscape's **Recompute** stores the map in the `landscape_cache` table. The Domains page creates, edits and deletes `domains/<id>.yaml`; deleting removes only the file (collected data stays; `repka db prune` later removes repos that no remaining domain holds, playbook G). After page edits, tell the user which files changed (`git status`) and leave committing to them (ground rule 5).
 6. **Domain changes are the user's call:** new domains start disabled unless the user ticks the box; enable one only when they say so. Ground rule 2 is unaffected: the dashboard cannot send or install a schedule.
+
+## Playbook G: database size and scan time
+
+Typical triggers: "the DB is huge", "a scan takes half an hour", "too many repos in a domain". Look first: `uv run repka db stats`, the size of `.state/repka.db` (`ls -lh`), and `uv run repka domain show <id>`.
+
+1. **Cut the input** (the lasting fix, ask the user which): raise `search.min_stars` and/or remove a broad keyword group in `domains/<id>.yaml`. These are domain edits, so say which keys change and why before editing, and leave committing to the user.
+2. **Shorten scans:** set `collect.accepted_refresh_every` (for example `20h` with a daily scan). Without it every accepted repo is re-snapshotted on every scan, which dominates the time on a big domain. After the next scan check `repka status` / `repka db stats`; if GitHub keeps answering with 5xx on GraphQL (`enrich: batch ... failed` in `logs/repka.log`), lower `collect.enrich_batch` to 25.
+3. **Prune what no longer matches:** first `uv run repka db prune` (dry run: exact counts, changes nothing) and show the numbers. It deletes data (repos below `min_stars`, repos held by no domain, old snapshots) and cannot be undone, so ask for an explicit yes, then `uv run repka db prune --apply`. It takes the run lock (refused as busy while a pass runs; check `repka status` first), then VACUUMs and prints the size before and after. Repos mentioned in a recorded digest are kept. `--snapshot-days N` sets how long every snapshot is kept (default 90, older ones thinned to one per week; `0` keeps all).
+4. **Explain the rest:** cached README bodies are truncated to `triage.readme_chars` at fetch time, nothing prunes automatically, and deleting a domain file or disabling a domain does not remove its data (only `db prune` removes repos, and only those no remaining domain holds or whose stars fell below `min_stars`).
 
 ## Reference files
 
 - `references/config-reference.md`: every `.config.yaml` key, `.env` variables and the domain file fields. Read it when changing a setting you are not sure about.
-- `references/troubleshooting.md`: symptom → cause → fix table. Read it for playbook E.
+- `references/troubleshooting.md`: symptom → cause → fix table. Read it for playbooks E and G.
 - Project docs: `README.md` (user docs), `wiki/spec/architecture.md` (full config and design).

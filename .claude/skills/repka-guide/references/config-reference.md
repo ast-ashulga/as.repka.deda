@@ -1,8 +1,11 @@
 # repka configuration reference
 
-`.config.yaml` is the source of truth: read the actual file for the current values (the defaults below are
-what the tracked file ships with and can drift). Every key is optional, unknown keys and wrong types are
-rejected at startup with the dotted key name, and every boolean flag defaults to `false`.
+`.config.yaml` is the source of truth: read the actual file for the current values. The "Default" column below
+is the default built into the code; the tracked `.config.yaml` overrides some of them (on this machine it
+sets `first_window: 90d`, `enrich_batch: 50`, `accepted_refresh_every: 20h`, a single digest slot `09:00`,
+`run.progress: live`, and has `triage.enabled`, `embed.enabled`, `notify.enabled` and `run.send` already `true`).
+Every key is optional, unknown keys and wrong types are rejected at startup with the dotted key name, and every
+boolean flag defaults to `false` in the code.
 Full list with comments: `wiki/spec/architecture.md` section 3.
 
 ## `.config.yaml`
@@ -15,14 +18,15 @@ Full list with comments: `wiki/spec/architecture.md` section 3.
 | `collect.first_window` | 365d (code default; `.config.yaml` may override it, e.g. 90d) | backfill window on a domain's first scan; the first scan is a silent baseline. Use `7d` for a first try |
 | `collect.overlap` | 1d | incremental scans use `pushed >= last_scan - overlap` |
 | `collect.max_repos_per_domain_scan` | 3000 | cap per scan; hitting it makes the run `partial` and the next run continues |
-| `collect.enrich_batch` | 25 | GraphQL nodes per query |
+| `collect.enrich_batch` | 50 | GraphQL nodes per query; a failing batch is retried as two halves. Lower to 25 if GitHub often answers 5xx |
 | `collect.slow_metrics_every` | 7d | contributors/participation refresh period |
+| `collect.accepted_refresh_every` | 0s | accepted repos the search did not match are re-snapshotted at most this often (`0s` = on every scan). Repos the search matched, repos with no snapshot and repos matched since their last snapshot are always enriched. `20h` suits a daily scan; it shortens scans and slows `snapshots` growth |
 | `triage.enabled` | false | run the decider during `repka run`; off = nothing accepted, digests empty |
 | `triage.model` | d1-3B | name in `deciders/models.yaml` (revision pinned to a 40-char hash) |
 | `triage.timeout_s` | 1800 | worker timeout; on timeout repos stay pending |
 | `triage.online` | false | allow Hugging Face downloads inside workers (leave off) |
 | `triage.allow_remote` | false | permit remote decider backends (hosted); sends repo text off the machine, never enable casually |
-| `triage.readme_chars` | 4000 | README characters given to the model |
+| `triage.readme_chars` | 4000 | README characters given to the model; also the most that is cached (the HTTP cache stores the README truncated to this) and what `db prune` cuts old cached bodies to |
 | `triage.thresholds` | `{relevant: 0.70, substance: 2}` | a repo is accepted when every threshold passes; higher = stricter |
 | `embed.enabled` | false | embed accepted repos during `repka run` (needs Ollama) |
 | `embed.model` / `embed.url` | nomic-embed-text / http://localhost:11434 | Ollama model and endpoint |
@@ -42,6 +46,7 @@ Full list with comments: `wiki/spec/architecture.md` section 3.
 | `notify.topic_id` | null | forum topic id, if any |
 | `run.send` | false | second switch: `repka run` delivers digests only if `notify.enabled` AND (`run.send` or `--send`) |
 | `run.log_level` | INFO | DEBUG, INFO, WARNING or ERROR |
+| `run.progress` | plain | stderr view of `repka run`: `plain` (one line per event), `live` (redrawn status line with ETA; acts as `lines` without a terminal), `lines` (timestamped, at most one progress line per 10 s; good for `logs/launchd.log`), `jsonl` (one JSON event per line). `--progress MODE` overrides it. `repka status` works in every mode |
 
 The two delivery switches are independent on purpose: `notify.enabled` permits sending (needed for
 `notify test`, `digest --send`, `run --send`), `run.send` makes every `repka run` (including launchd) send.
@@ -70,12 +75,19 @@ Only domains with `enabled: true` are collected. `domains/example-mcp.yaml` is a
 | `search.topics` | `topic:<t>` queries |
 | `search.languages` | `[]` = any |
 | `search.exclude` | each word becomes `NOT <word>` (at most 5 operators per query) |
-| `search.min_stars` | keep tight for a first run |
+| `search.min_stars` | the main lever on data volume (`domains/mcp.yaml` uses 300). `repka db prune` removes repos whose latest snapshot is below it. Keep it tight for a first run |
 | `search.in` | `name`, `description`, `readme` (`name` with a phrase finds nothing) |
 | `search.fork_policy` | `exclude` (default), `include`, `only` |
 | `key_files` | files fetched for dependency tracking, e.g. `pyproject.toml`, `package.json` |
 
 Inspect with `uv run repka domain list|show <id>|plan <id>`.
+
+## Database maintenance
+
+`repka db prune [--apply] [--snapshot-days N]`: dry run unless `--apply` (which takes the run lock and VACUUMs).
+Removes repos below a domain's `search.min_stars`, repos no domain holds and no digest mentions, truncates cached
+README bodies, and thins snapshots older than N days (default 90, `0` = keep all) to one per ISO week. There is
+no config key for it and nothing runs it automatically. `repka db stats` shows row counts and recent runs.
 
 ## Paths and environment
 
