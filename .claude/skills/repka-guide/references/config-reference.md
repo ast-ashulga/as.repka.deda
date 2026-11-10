@@ -31,11 +31,11 @@ Full list with comments: `wiki/spec/architecture.md` section 3.
 | `digest.max_items_per_domain` | 10 | digest size per domain |
 | `digest.new_max_age` | 90d | first-seen repos created within this age are "new", older ones "found" |
 | `digest.star_spike_min_delta` | 50 | `stars_delta_1d` threshold for the "top movers" section |
-| `digest.insights` | false | insights format of the main digest: description, `kind · lvl`, facet tags, icon legend, `…and N more` counter (`repka digest --more` lists them); held-back new/found items stay pending instead of being consumed |
+| `digest.insights` | false | insights format of the main digest: description, `kind · lvl`, facet tags, icon legend, `…and N more` counter (`repka digest --more` lists the queue); overflow new/found/release items stay pending instead of being consumed (stack overflow is still consumed) |
 | `digest.releases_message` | false | releases go out as a separate daily message at `digest.releases_slot`; the main digest then neither shows nor consumes them. Meant to be switched together with `insights` (`repka doctor` warns when only one is on) |
 | `digest.releases_slot` | `"09:00"` | local time HH:MM of the releases message; a slot older than `digest.max_lateness` is skipped and its releases wait for the next one |
 | `digest.facet_min_p` | 0.7 | minimum probability (above 0, at most 1) of a decider facet answer to show as a tag (at most 3 per repo) |
-| `digest.pending_max_age` | 7d | with `insights`: a held-back new/found item older than this is dropped unseen |
+| `digest.pending_max_age` | 7d | with `insights`: a pending new/found/release item older than this is dropped unseen |
 | `notify.enabled` | false | Telegram delivery is allowed at all |
 | `notify.backend` | telegram_user | own account through fast-mcp-telegram |
 | `notify.chat_id` | `"me"` | `"me"` = Saved Messages, or a numeric id / `@username` |

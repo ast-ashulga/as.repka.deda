@@ -21,6 +21,10 @@ from repka.store.repo import _iso, _parse, latest_snapshot
 MOVER_REPEAT_WINDOW = timedelta(hours=24)
 BASE_QUESTIONS = frozenset({"relevant", "substance", "kind", "is_junk"})
 MAX_FACETS = 3
+# Under `insights` an overflow item of these kinds stays pending (its events are not consumed) until
+# `pending_max_age`; they are the items `pending_overflow` lists. Stack overflow is consumed, movers have no events.
+PENDING_LINE_KINDS = frozenset({"new", "found", "release"})
+PENDING_EVENT_KINDS = frozenset({"new_repo", "release"})
 
 
 def facet_tags(answers: dict[str, Any], min_p: float) -> list[tuple[str, float]]:
@@ -160,7 +164,7 @@ def _domain_section(
         if not verdict[0] or ev["kind"] not in by_kind:  # rejected, or key_file_changed (shown via stack_changed)
             consumed.append(ev["id"])
             continue
-        if cfg.insights and ev["kind"] == "new_repo":
+        if cfg.insights and ev["kind"] in PENDING_EVENT_KINDS:
             detected = _parse(ev["detected_at"])
             if detected is not None and detected < pending_cutoff:  # waited too long: drop silently
                 consumed.append(ev["id"])
@@ -299,7 +303,7 @@ def _domain_section(
             else:
                 section.more += 1
                 section.more_by_kind[item.line_kind] = section.more_by_kind.get(item.line_kind, 0) + 1
-                if not (cfg.insights and target is section.new_repos):  # insights: new overflow stays pending
+                if not (cfg.insights and item.line_kind in PENDING_LINE_KINDS):  # insights: these wait for a later digest
                     consumed.extend(ids)
     return section if section.item_count else None
 
@@ -332,32 +336,21 @@ def pending_overflow(
     slot: str,
     local_date: str,
 ) -> Digest:
-    """The items a normal build holds back (`max_items_per_domain`), as a digest of their own.
+    """The items waiting in the queue (new, found and release; not stack or mover), as a digest of their own.
 
-    Builds twice, without the limit and as configured, and subtracts by (domain, repo, line kind).
-    Pure read, like `build_digest`; the event id lists are empty and no section carries a `more`.
+    That is the unlimited build restricted to the kinds that stay pending, not "what the next normal build
+    would not show": after a send the held-back items are exactly what the next build shows. Pure read, like
+    `build_digest`; the event id lists are empty and no section carries a `more`.
     """
     everything = build_digest(conn, domains, now, replace(cfg, max_items_per_domain=10**9), slot, local_date)
-    normal = build_digest(conn, domains, now, cfg, slot, local_date)
-    shown = {
-        (i.domain_id, i.repo_id, i.line_kind)
-        for s in normal.sections
-        for i in (*s.new_repos, *s.releases, *s.movers, *s.stack_changes)
-    }
-
-    def held(items: list[DigestItem]) -> list[DigestItem]:
-        return [i for i in items if (i.domain_id, i.repo_id, i.line_kind) not in shown]
-
     sections = []
     for s in everything.sections:
-        left = DigestSection(
+        waiting = DigestSection(
             s.domain_id,
             s.domain_name,
-            new_repos=held(s.new_repos),
-            releases=held(s.releases),
-            movers=held(s.movers),
-            stack_changes=held(s.stack_changes),
+            new_repos=[i for i in s.new_repos if i.line_kind in PENDING_LINE_KINDS],
+            releases=[i for i in s.releases if i.line_kind in PENDING_LINE_KINDS],
         )
-        if left.item_count:
-            sections.append(left)
+        if waiting.item_count:
+            sections.append(waiting)
     return Digest(slot, local_date, sections, [], [], cfg.insights, cfg.facet_min_p)

@@ -274,6 +274,15 @@ def test_pass_with_insights_and_releases_message(tmp_path):
         assert "tags = decider answers" in main and "🆕 new repo" in main  # legend
         assert "🚀" not in main and "v1.0.0" not in main  # releases belong to their own message
         assert "troll/mcp-blog" not in main
+        lines12 = main.splitlines()
+        start = next(i for i, ln in enumerate(lines12) if "zed/mcp-sdk-py" in ln)  # repo 12: no facet answers
+        block12 = []
+        for ln in lines12[start:]:
+            if block12 and (ln.startswith("🆕") or ln.startswith("🔎") or not ln.strip()):
+                break
+            block12.append(ln)
+        assert len(block12) == 3 and "gateway" not in "\n".join(block12)
+        assert block12[-1].startswith("<code>") and block12[-1].endswith("</code>")  # kind / lvl only, no facet tag
 
         # 09:15: only the releases slot is due
         second = rig.run(local(7, 9, 15))
@@ -284,6 +293,7 @@ def test_pass_with_insights_and_releases_message(tmp_path):
         releases = "\n".join(rig.sender.calls[1])
         assert "🚀" in releases and "acme/mcp-github" in releases and "v1.0.0" in releases
         assert "zed/mcp-sdk-py" not in releases and "gateway" not in releases
+        assert "tags = decider answers" not in releases  # the legend belongs to the main digest only
 
         rows = conn.execute("SELECT slot, kind, status FROM digests WHERE status = 'sent' ORDER BY id").fetchall()
         assert [(r["slot"], r["kind"]) for r in rows] == [("08:30", "main"), ("releases:09:00", "releases")]

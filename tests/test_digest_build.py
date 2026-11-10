@@ -352,7 +352,7 @@ def test_insights_overflow_stays_pending(conn):
     assert off.sections[0].more_by_kind == {"new": 1}
 
 
-def test_insights_overflow_stack_and_release_still_consumed(conn):
+def test_insights_overflow_stack_consumed_release_stays_pending(conn):
     for r in (1, 2, 3):
         add_repo(conn, r, stars=100 * r)
         add_verdict(conn, r, True)
@@ -361,8 +361,40 @@ def test_insights_overflow_stack_and_release_still_consumed(conn):
     rel = add_event(conn, 3, "release", {"tag": "v1"})
     d = build(conn, DigestConfig(max_items_per_domain=1, insights=True))
     assert d.shown_event_ids == [n]
-    assert sorted(d.consumed_event_ids) == sorted([s, rel])
+    assert d.consumed_event_ids == [s]  # only the stack overflow is consumed; the release waits for a later digest
+    assert rel not in d.shown_event_ids + d.consumed_event_ids
     assert d.sections[0].more_by_kind == {"stack": 1, "release": 1}
+    # flag off: the overflowed release is consumed as before
+    off = build(conn, DigestConfig(max_items_per_domain=1))
+    assert rel in off.consumed_event_ids
+
+
+def test_insights_release_overflow_behind_new_group_stays_pending(conn):
+    ids = _three_new(conn)
+    add_repo(conn, 9, stars=90000)
+    add_verdict(conn, 9, True)
+    rel = add_event(conn, 9, "release", {"tag": "v9"})
+    d = build(conn, DigestConfig(max_items_per_domain=2, insights=True))
+    [section] = d.sections
+    assert [i.repo_id for i in section.new_repos] == [1, 2] and section.releases == []
+    assert section.more_by_kind == {"new": 1, "release": 1}
+    assert rel not in d.consumed_event_ids and ids[2] not in d.consumed_event_ids
+    queue = overflow(conn, DigestConfig(max_items_per_domain=2, insights=True))
+    assert sorted((i.line_kind, i.repo_id) for i in items(queue)) == [("new", 1), ("new", 2), ("new", 3), ("release", 9)]
+
+
+def test_insights_expires_old_pending_releases(conn):
+    add_repo(conn, 1)
+    add_repo(conn, 2)
+    add_verdict(conn, 1, True)
+    add_verdict(conn, 2, True)
+    old = add_event(conn, 1, "release", {"tag": "v1"}, at=NOW - timedelta(days=8))
+    fresh = add_event(conn, 2, "release", {"tag": "v2"}, at=NOW - timedelta(days=6))
+    d = build(conn, DigestConfig(insights=True, pending_max_age=timedelta(days=7)))
+    assert [i.repo_id for i in items(d)] == [2]
+    assert d.shown_event_ids == [fresh] and d.consumed_event_ids == [old]
+    off = build(conn, DigestConfig(pending_max_age=timedelta(days=7)))  # flag off: no expiry
+    assert sorted(off.shown_event_ids) == sorted([old, fresh])
 
 
 def test_insights_expires_old_pending_new_repos(conn):
@@ -396,7 +428,7 @@ def test_insights_order_puts_releases_last(conn):
     on = build(conn, DigestConfig(max_items_per_domain=3, insights=True))
     assert [i.line_kind for i in items(on)] == ["new", "mover", "stack"]
     assert on.sections[0].more_by_kind == {"release": 1}
-    assert rel in on.consumed_event_ids and st in on.shown_event_ids
+    assert rel not in on.consumed_event_ids + on.shown_event_ids and st in on.shown_event_ids  # release stays pending
     off = build(conn, DigestConfig(max_items_per_domain=3))
     assert [i.line_kind for i in items(off)] == ["new", "release", "mover"]
     assert off.sections[0].more_by_kind == {"stack": 1}
@@ -407,34 +439,65 @@ def overflow(conn, cfg):
 
 
 @pytest.mark.parametrize("insights", [False, True])
-def test_pending_overflow_returns_only_held_back_items(conn, insights):
+def test_pending_overflow_lists_the_whole_pending_queue(conn, insights):
     _three_new(conn)
     cfg = DigestConfig(max_items_per_domain=2, insights=insights)
     d = overflow(conn, cfg)
     [section] = d.sections
-    assert [i.repo_id for i in section.new_repos] == [3]  # the lowest-ranked repo
+    assert [i.repo_id for i in section.new_repos] == [1, 2, 3]  # the unlimited build, not a subtraction
     assert section.more == 0 and section.more_by_kind == {}
-    assert d.item_count == 1 and d.insights is insights
+    assert d.item_count == 3 and d.insights is insights
     assert d.shown_event_ids == [] and d.consumed_event_ids == []
 
 
-def test_pending_overflow_empty_when_nothing_is_held_back(conn):
-    _three_new(conn)
+def test_pending_overflow_empty_when_the_queue_is_empty(conn):
     assert overflow(conn, DigestConfig(max_items_per_domain=3)).sections == []
     assert overflow(conn, DigestConfig(max_items_per_domain=3)).item_count == 0
 
 
-def test_pending_overflow_spans_kinds_and_domains(conn):
-    for r in (1, 2, 3):
-        add_repo(conn, r, stars=100 * r)
+def test_pending_overflow_lists_new_found_release_not_stack_or_mover(conn):
+    t_old = NOW - timedelta(days=2)
+    add_repo(conn, 1)  # new
+    add_repo(conn, 2, created="2019-01-01T00:00:00Z")  # found
+    add_repo(conn, 3)  # release
+    add_repo(conn, 4)  # stack
+    add_repo(conn, 5, stars=500, taken_at=t_old)  # mover
+    add_snapshot(conn, 5, 650, NOW - timedelta(hours=1))
+    for r in (1, 2, 3, 4, 5):
         add_verdict(conn, r, True)
     add_event(conn, 1, "new_repo")
-    add_event(conn, 2, "stack_changed", {"path": "p", "added": ["a"], "removed": []})
+    add_event(conn, 2, "new_repo")
     add_event(conn, 3, "release", {"tag": "v1"})
-    d = overflow(conn, DigestConfig(max_items_per_domain=1, insights=True))
-    [section] = d.sections
-    assert sorted(i.line_kind for i in items(d)) == ["release", "stack"]
-    assert section.more == 0
+    add_event(conn, 4, "stack_changed", {"path": "p", "added": ["a"], "removed": []})
+    cfg = DigestConfig(max_items_per_domain=10, insights=True, star_spike_min_delta=50)
+    assert "mover" in [i.line_kind for i in items(build(conn, cfg))]  # the mover exists in a normal digest
+    d = overflow(conn, cfg)
+    assert sorted(i.line_kind for i in items(d)) == ["found", "new", "release"]
+    assert d.sections[0].movers == [] and d.sections[0].stack_changes == []
+
+
+def test_pending_overflow_items_carry_facets_with_insights_on(conn):
+    add_repo(conn, 1)
+    add_verdict(conn, 1, True, extra_answers={"agentic": {"type": "noul", "p": 0.9, "pred": True, "conf": 0.9}})
+    add_event(conn, 1, "new_repo")
+    [item] = items(overflow(conn, DigestConfig(max_items_per_domain=1, insights=True)))
+    assert item.text_fields["facets"] == [("agentic", 0.9)]
+    [off] = items(overflow(conn, DigestConfig(max_items_per_domain=1)))
+    assert "facets" not in off.text_fields
+
+
+def test_overflowed_found_item_stays_pending_and_is_listed(conn):
+    add_repo(conn, 1)
+    add_repo(conn, 2, created="2019-01-01T00:00:00Z")  # old repo found later: "found"
+    add_verdict(conn, 1, True, substance=5)
+    add_verdict(conn, 2, True, substance=1)
+    add_event(conn, 1, "new_repo")
+    found = add_event(conn, 2, "new_repo")
+    cfg = DigestConfig(max_items_per_domain=1, insights=True)
+    d = build(conn, cfg)
+    assert d.sections[0].more_by_kind == {"found": 1}
+    assert found not in d.consumed_event_ids + d.shown_event_ids
+    assert sorted(i.line_kind for i in items(overflow(conn, cfg))) == ["found", "new"]
 
 
 def test_pending_overflow_writes_nothing(conn):
