@@ -5,6 +5,7 @@ and the store. Fake: the GitHub servers, the decider backend, the embedder, the 
 Local time is Asia/Tbilisi (UTC+4); slots 08:30 and 19:30; the domain is scanned every 6 hours.
 """
 
+import dataclasses
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
@@ -16,6 +17,7 @@ import pytest
 
 from repka.collect import collect_domains, due_domains, iso
 from repka.config import AppConfig, DigestConfig, EmbedConfig, GithubConfig, NotifyConfig, RunConfig, TriageConfig
+from repka.digest.releases import run_releases
 from repka.digest.run import run_digest
 from repka.domain.schema import Domain, SearchSpec
 from repka.embed.embed import embed_domain
@@ -99,6 +101,17 @@ class FakeBackend:
         return out, {}
 
 
+class FacetBackend(FakeBackend):
+    """FakeBackend plus a domain facet answer: repo 11 is a `gateway` (p 0.9), repo 12 has no facets."""
+
+    def decide(self, items, q):
+        out, extra = super().decide(items, q)
+        for i in items:
+            if i.repo_id == 11:
+                out[f"{i.domain_id}:{i.repo_id}"]["gateway"] = {"type": "noul", "p": 0.9, "pred": True, "conf": 0.9}
+        return out, extra
+
+
 class FakeEmbedder:
     model = "fake-embed"
 
@@ -120,8 +133,10 @@ class FakeSender:
 
 
 class Rig:
-    def __init__(self, conn):
+    def __init__(self, conn, cfg: AppConfig = CFG, backend=None):
         self.conn = conn
+        self.cfg = cfg
+        self.backend = backend or FakeBackend()
         self.world = World()
         self.embedder = FakeEmbedder()
         self.sender = FakeSender()
@@ -131,24 +146,25 @@ class Rig:
         self.questions = load_questions(ROOT / "deciders" / "questions.yaml")
 
     def boundaries(self) -> Boundaries:
-        conn = self.conn
+        conn, cfg = self.conn, self.cfg
 
         def collect(ds, now):
             states = {d.id: repo.get_domain_state(conn, d.id) for d in ds}
-            return collect_domains(self.client, conn, due_domains(ds, states, now), CFG, now)
+            return collect_domains(self.client, conn, due_domains(ds, states, now), cfg, now)
 
         return Boundaries(
             collect=collect,
             triage=lambda d, now: triage_domain(
-                conn, d, FakeBackend(), self.questions, "fake", CFG.triage.thresholds, self.client.readme,
-                CFG.triage.readme_chars, iso(now),
+                conn, d, self.backend, self.questions, "fake", cfg.triage.thresholds, self.client.readme,
+                cfg.triage.readme_chars, iso(now),
             ),
-            embed=lambda d, now: embed_domain(conn, d.id, self.embedder, CFG.embed.batch, iso(now)),
-            digest=lambda now, send: run_digest(conn, [DOMAIN], CFG, self.sender, now, send, tz=TZ),
+            embed=lambda d, now: embed_domain(conn, d.id, self.embedder, cfg.embed.batch, iso(now)),
+            digest=lambda now, send: run_digest(conn, [DOMAIN], cfg, self.sender, now, send, tz=TZ),
+            releases=lambda now, send: run_releases(conn, [DOMAIN], cfg, self.sender, now, send, tz=TZ),
         )
 
     def run(self, when: datetime, send: bool = True):
-        return run_pass([DOMAIN], CFG, self.boundaries(), when, send)
+        return run_pass([DOMAIN], self.cfg, self.boundaries(), when, send)
 
 
 @pytest.fixture
@@ -231,3 +247,51 @@ def test_rate_limit_mid_collect_still_sends_digest_of_known_items(rig):
     assert report.digest.status == "sent" and report.digest.item_count == 2
     text = "\n".join(rig.sender.calls[0])
     assert "acme/mcp-github" in text and "zed/mcp-sdk-py" in text
+
+
+def test_pass_with_insights_and_releases_message(tmp_path):
+    cfg = dataclasses.replace(CFG, digest=DigestConfig(slots=["08:30", "19:30"], insights=True, releases_message=True))
+    conn = connect(tmp_path / "insights.db")
+    migrate(conn)
+    rig = Rig(conn, cfg, FacetBackend())
+    try:
+        assert rig.run(local(6, 8, 45)).status == "ok"  # baseline: the veteran, silent
+        rig.world.visible = [10, 11, 12, 13]
+        rig.world.releases[11] = [{
+            "tagName": "v1.0.0", "name": "First stable", "publishedAt": "2026-11-05T10:00:00Z",
+            "createdAt": "2026-11-05T09:55:00Z", "url": "https://github.com/acme/mcp-github/releases/tag/v1.0.0",
+        }]
+
+        # 08:45: the main slot is due, the 09:00 releases slot is not yet
+        first = rig.run(local(7, 8, 45))
+        assert first.status == "ok", first.errors
+        assert first.digest.status == "sent" and first.digest.item_count == 2
+        assert first.releases.status == "not_due"
+        assert len(rig.sender.calls) == 1
+        main = "\n".join(rig.sender.calls[0])
+        assert "acme/mcp-github" in main and "zed/mcp-sdk-py" in main
+        assert "gateway" in main  # facet tag of repo 11 (p 0.9 >= facet_min_p)
+        assert "tags = decider answers" in main and "🆕 new repo" in main  # legend
+        assert "🚀" not in main and "v1.0.0" not in main  # releases belong to their own message
+        assert "troll/mcp-blog" not in main
+
+        # 09:15: only the releases slot is due
+        second = rig.run(local(7, 9, 15))
+        assert second.status == "ok", second.errors
+        assert second.digest.status == "not_due"
+        assert second.releases.status == "sent" and second.releases.item_count == 1
+        assert len(rig.sender.calls) == 2
+        releases = "\n".join(rig.sender.calls[1])
+        assert "🚀" in releases and "acme/mcp-github" in releases and "v1.0.0" in releases
+        assert "zed/mcp-sdk-py" not in releases and "gateway" not in releases
+
+        rows = conn.execute("SELECT slot, kind, status FROM digests WHERE status = 'sent' ORDER BY id").fetchall()
+        assert [(r["slot"], r["kind"]) for r in rows] == [("08:30", "main"), ("releases:09:00", "releases")]
+        assert conn.execute("SELECT count(*) FROM events WHERE digest_id IS NULL").fetchone()[0] == 0
+
+        # a later pass the same day sends nothing
+        third = rig.run(local(7, 9, 40))
+        assert third.status == "ok" and third.digest.status == "not_due" and third.releases.status == "not_due"
+        assert len(rig.sender.calls) == 2
+    finally:
+        conn.close()
