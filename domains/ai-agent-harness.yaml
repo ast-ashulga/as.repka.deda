@@ -29,4 +29,25 @@ search:
   fork_policy: exclude
 key_files: [pyproject.toml, package.json, Cargo.toml, go.mod]
 triage:
-  questions: {}
+  # Facet questions: they describe how a repo differs inside the domain; thresholds ignore them.
+  questions:
+    self_modifies:
+      type: noul
+      instructions: >-
+        Does the agent or harness modify its own code, prompts or tools in order to improve itself?
+    uses_own_models:
+      type: noul
+      instructions: >-
+        Does the project run its own AI models (judge, critic, router, memory or planner) to provide features of the harness itself?
+    trains_weights:
+      type: noul
+      instructions: >-
+        Does the project change or train model weights (fine-tuning, reinforcement learning, distillation) from agent runs?
+    sandbox:
+      type: noul
+      instructions: >-
+        Does the harness run agent-generated code or commands in an isolated sandbox (container, VM or similar)?
+    subagents:
+      type: noul
+      instructions: >-
+        Does the harness orchestrate several agents or sub-agents, including running them in parallel?

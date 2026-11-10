@@ -26,4 +26,25 @@ search:
   fork_policy: exclude
 key_files: [pyproject.toml, package.json, Cargo.toml, go.mod]
 triage:
-  questions: {}
+  # Facet questions: they describe how a repo differs inside the domain; thresholds ignore them.
+  questions:
+    remote_transport:
+      type: noul
+      instructions: >-
+        Can the server or client work over the network (HTTP, SSE or streamable HTTP), not only over stdio?
+    gateway:
+      type: noul
+      instructions: >-
+        Does the project aggregate, proxy or route requests to several MCP servers?
+    guardrails:
+      type: noul
+      instructions: >-
+        Does the project add security controls to tool calls (permissions, approval, filtering, auditing or sandboxing)?
+    token_efficiency:
+      type: noul
+      instructions: >-
+        Does the project reduce the context or token cost of tool definitions (lazy loading, tool search, code execution instead of tool calls)?
+    wraps_service:
+      type: noul
+      instructions: >-
+        Does the server wrap one specific external product or API (a SaaS, database or developer service) rather than being general purpose?
