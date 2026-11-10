@@ -12,7 +12,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
@@ -108,6 +108,11 @@ class DigestConfig:
     max_items_per_domain: int = 10
     new_max_age: timedelta = timedelta(days=90)  # a first-seen repo created within this age is "new"
     star_spike_min_delta: int = 50  # stars_delta_1d threshold for the "top movers" section
+    insights: bool = False  # digest insights section (off until the feature ships)
+    releases_message: bool = False  # separate releases message at releases_slot
+    releases_slot: str = "09:00"  # local time HH:MM for the releases message
+    facet_min_p: float = 0.7  # minimum probability for a facet to be shown in insights
+    pending_max_age: timedelta = timedelta(days=7)  # how long a pending insight waits before it expires
 
 
 @dataclass(frozen=True)
@@ -170,6 +175,24 @@ def _str(key: str, value: Any) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{key} must be a non-empty string (got {value!r})")
     return value.strip()
+
+
+def _slot(key: str, value: Any) -> str:
+    """A local time of day written HH:MM (zero-padded), e.g. 09:00."""
+    if not isinstance(value, str) or len(value) != 5:
+        raise ConfigError(f"{key} must be a local time HH:MM (got {value!r})")
+    try:
+        datetime.strptime(value, "%H:%M")
+    except ValueError:
+        raise ConfigError(f"{key} must be a local time HH:MM (got {value!r})") from None
+    return value
+
+
+def _probability(key: str, value: Any) -> float:
+    p = _number(key, value)
+    if not 0 < p <= 1:
+        raise ConfigError(f"{key} must be above 0 and at most 1 (got {value!r})")
+    return p
 
 
 def _duration(key: str, value: Any) -> timedelta:
@@ -279,6 +302,11 @@ def load_digest(raw: Any) -> DigestConfig:
             "max_items_per_domain": _int,
             "new_max_age": _duration,
             "star_spike_min_delta": _int,
+            "insights": _bool,
+            "releases_message": _bool,
+            "releases_slot": _slot,
+            "facet_min_p": _probability,
+            "pending_max_age": _duration,
         },
     )
 

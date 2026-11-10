@@ -7,7 +7,7 @@ import pytest
 
 from repka import config, pipeline, preflight
 from repka.cli import main
-from repka.config import AppConfig, EmbedConfig, NotifyConfig, TriageConfig
+from repka.config import AppConfig, DigestConfig, EmbedConfig, NotifyConfig, TriageConfig
 from repka.github.client import AuthError, AuthInfo, GitHubError
 
 NOW = datetime(2026, 11, 8, 8, 0, 0, tzinfo=UTC)
@@ -189,6 +189,20 @@ def test_flags_off_produce_warnings_only(home, monkeypatch):
     titles = " | ".join(f.title for f in findings)
     assert "digests will stay empty" in titles and "preview only" in titles and "ollama" in titles
     assert preflight.check(AppConfig(), send=False, auth_probe=probe_returning(), now=NOW)[0].level == "warning"
+
+
+@pytest.mark.parametrize(
+    "insights, releases_message, warned",
+    [(True, False, True), (False, True, True), (False, False, False), (True, True, False)],
+)
+def test_preflight_warns_when_only_one_digest_flag_is_on(insights, releases_message, warned):
+    cfg = AppConfig(digest=DigestConfig(insights=insights, releases_message=releases_message))
+    results = preflight.check_digest_flags(cfg)
+    if warned:
+        assert [(r.id, r.status) for r in results] == [("digest-flags", "warn")]
+        assert results[0].fix
+    else:
+        assert results == []
 
 
 def test_findings_list_puts_errors_first_and_is_numbered(home):

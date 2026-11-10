@@ -1,4 +1,5 @@
 import dataclasses
+import re
 import subprocess
 from datetime import timedelta
 from pathlib import Path
@@ -10,6 +11,7 @@ from repka.config import (
     github_token,
     github_token_source,
     load_config,
+    load_digest,
     parse_duration,
     project_root,
     worker_env,
@@ -98,3 +100,37 @@ def test_github_token_source(home, monkeypatch):
     assert github_token_source() == "gh"
     (home / ".env").write_text("REPKA_GITHUB_TOKEN=from_env\n")
     assert github_token_source() == "env"
+
+
+def test_digest_new_keys_default_off(home):
+    cfg = load_config(home / "missing.yaml")
+    assert cfg.digest.insights is False
+    assert cfg.digest.releases_message is False
+    assert cfg.digest.releases_slot == "09:00"
+    assert cfg.digest.facet_min_p == 0.7
+    assert cfg.digest.pending_max_age == timedelta(days=7)
+
+
+def test_digest_new_keys_parse():
+    d = load_digest({"insights": True, "releases_slot": "07:15", "facet_min_p": 0.5, "pending_max_age": "3d"})
+    assert d.insights is True
+    assert d.releases_slot == "07:15"
+    assert d.facet_min_p == 0.5
+    assert d.pending_max_age == timedelta(days=3)
+
+
+@pytest.mark.parametrize(
+    "raw, key",
+    [
+        ({"releases_slot": "9am"}, "digest.releases_slot"),
+        ({"releases_slot": "25:00"}, "digest.releases_slot"),
+        ({"facet_min_p": 1.5}, "digest.facet_min_p"),
+        ({"facet_min_p": 0}, "digest.facet_min_p"),
+        ({"insights": "yes"}, "digest.insights"),
+        ({"releases_message": 1}, "digest.releases_message"),
+        ({"pending_max_age": "soon"}, "digest.pending_max_age"),
+    ],
+)
+def test_digest_bad_values_name_the_key(raw, key):
+    with pytest.raises(ConfigError, match=re.escape(key)):
+        load_digest(raw)

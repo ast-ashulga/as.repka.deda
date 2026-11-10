@@ -263,6 +263,18 @@ def _send(cfg: AppConfig, send: bool) -> list[Result]:
     return results
 
 
+# --- digest flags ------------------------------------------------------------------------------------
+
+
+def check_digest_flags(cfg: AppConfig) -> list[Result]:
+    """Warn when only one of the two digest feature flags is on: the pair is meant to be switched together."""
+    d = cfg.digest
+    if d.insights == d.releases_message:
+        return []
+    on, off = ("digest.insights", "digest.releases_message") if d.insights else ("digest.releases_message", "digest.insights")
+    return [_warn("digest-flags", f"{on} is on but {off} is off", f"set `{off}` to true in .config.yaml, or set `{on}` to false")]
+
+
 # --- public API -------------------------------------------------------------------------------------
 
 
@@ -286,6 +298,7 @@ def diagnose(
         *_triage(cfg, domains),
         *_embed(cfg, models_probe),
         *_send(cfg, send),
+        *check_digest_flags(cfg),
     ]
 
 
