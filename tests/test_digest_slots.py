@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from repka.digest.slots import decide_slot, recorded_slots
+from repka.digest.slots import decide_slot, recorded_slots, slot_key
 
 TZ = ZoneInfo("Asia/Tbilisi")
 SLOTS = ["08:30", "19:30"]
@@ -42,4 +42,19 @@ def test_recorded_slots_reads_all_statuses(tmp_path):
     for slot, day, status in (("08:30", TODAY, "sent"), ("19:30", YESTERDAY, "empty"), ("08:30", "2026-10-01", "sent")):
         conn.execute("INSERT INTO digests (slot, local_date, status) VALUES (?, ?, ?)", (slot, day, status))
     assert recorded_slots(conn, YESTERDAY) == {("08:30", TODAY), ("19:30", YESTERDAY)}
+    conn.close()
+
+
+def test_main_recorded_slots_ignore_releases_rows(tmp_path):
+    from helpers_digest import make_db
+
+    conn = make_db(tmp_path / "t.db")
+    conn.execute("INSERT INTO digests (slot, local_date, status) VALUES ('08:30', ?, 'sent')", (TODAY,))
+    conn.execute(
+        "INSERT INTO digests (slot, local_date, status, kind) VALUES (?, ?, 'sent', 'releases')",
+        (slot_key("releases", "09:00"), TODAY),
+    )
+    assert recorded_slots(conn, YESTERDAY) == {("08:30", TODAY)}
+    assert recorded_slots(conn, YESTERDAY, kind="releases") == {("09:00", TODAY)}
+    assert slot_key("main", "08:30") == "08:30" and slot_key("releases", "09:00") == "releases:09:00"
     conn.close()

@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from repka.config import AppConfig
 from repka.digest.build import Digest, build_digest
 from repka.digest.render import render_digest, split_messages
-from repka.digest.slots import decide_slot, parse_slot, recorded_slots
+from repka.digest.slots import decide_slot, parse_slot, recorded_slots, slot_key
 from repka.domain.schema import Domain
 from repka.models import DigestItem
 from repka.notify.telegram_user import Sender
@@ -46,24 +46,34 @@ def _items(digest: Digest) -> Iterable[DigestItem]:
         yield from (*s.new_repos, *s.releases, *s.movers, *s.stack_changes)
 
 
-def _insert_digest(conn: sqlite3.Connection, slot: str, local_date: str, status: str, count: int, sent_at: str | None):
+def _insert_digest(
+    conn: sqlite3.Connection,
+    slot: str,
+    local_date: str,
+    status: str,
+    count: int,
+    sent_at: str | None,
+    kind: str = "main",
+):
     """Record the slot. Tolerant of a row that already exists (a concurrent run recorded it first): no
-    IntegrityError after a message was delivered; the existing row's id is returned."""
+    IntegrityError after a message was delivered; the existing row's id is returned. A non-main `kind` stores
+    its slot as `slot_key(kind, slot)`, so it never collides with the main row of the same time."""
+    key = slot_key(kind, slot)
     conn.execute(
-        "INSERT OR IGNORE INTO digests (slot, local_date, status, item_count, sent_at) VALUES (?, ?, ?, ?, ?)",
-        (slot, local_date, status, count, sent_at),
+        "INSERT OR IGNORE INTO digests (slot, local_date, status, item_count, sent_at, kind) VALUES (?, ?, ?, ?, ?, ?)",
+        (key, local_date, status, count, sent_at, kind),
     )
-    return conn.execute("SELECT id FROM digests WHERE slot = ? AND local_date = ?", (slot, local_date)).fetchone()[0]
+    return conn.execute("SELECT id FROM digests WHERE slot = ? AND local_date = ?", (key, local_date)).fetchone()[0]
 
 
-def _record_skipped(conn: sqlite3.Connection, skipped: list[tuple[str, str]]) -> None:
+def _record_skipped(conn: sqlite3.Connection, skipped: list[tuple[str, str]], kind: str = "main") -> None:
     if not skipped:
         return
     with conn:
         for slot, day in skipped:
             conn.execute(
-                "INSERT OR IGNORE INTO digests (slot, local_date, status, item_count) VALUES (?, ?, 'skipped', 0)",
-                (slot, day),
+                "INSERT OR IGNORE INTO digests (slot, local_date, status, item_count, kind) VALUES (?, ?, 'skipped', 0, ?)",
+                (slot_key(kind, slot), day, kind),
             )
 
 

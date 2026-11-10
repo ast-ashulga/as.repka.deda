@@ -48,7 +48,16 @@ def decide_slot(
     return SlotDecision(due, skipped)
 
 
-def recorded_slots(conn: sqlite3.Connection, since_date: str) -> set[tuple[str, str]]:
-    """(slot, local_date) of every recorded digest row (sent, empty or skipped) from `since_date` on."""
-    rows = conn.execute("SELECT slot, local_date FROM digests WHERE local_date >= ?", (since_date,))
-    return {(r["slot"], r["local_date"]) for r in rows}
+def slot_key(kind: str, slot: str) -> str:
+    """The `digests.slot` value of a message: the slot itself for the main digest, `kind:slot` for any other."""
+    return slot if kind == "main" else f"{kind}:{slot}"
+
+
+def recorded_slots(conn: sqlite3.Connection, since_date: str, kind: str = "main") -> set[tuple[str, str]]:
+    """(slot, local_date) of every recorded row of this kind (sent, empty or skipped) from `since_date` on.
+
+    The kind prefix of `slot_key` is stripped, so callers compare plain "HH:MM" slots.
+    """
+    prefix = slot_key(kind, "")
+    rows = conn.execute("SELECT slot, local_date FROM digests WHERE local_date >= ? AND kind = ?", (since_date, kind))
+    return {(r["slot"].removeprefix(prefix), r["local_date"]) for r in rows}

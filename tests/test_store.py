@@ -159,3 +159,22 @@ def test_migrate_is_race_safe_with_stale_version_read(tmp_path, monkeypatch):
     assert real(second) == final
     assert not second.in_transaction
     assert second.autocommit == sqlite3.LEGACY_TRANSACTION_CONTROL
+
+
+def test_migration_004_adds_kind_default_main(tmp_path):
+    c = connect(tmp_path / "m4.db")
+    # a database as it was at version 3: apply 001..003 by hand
+    c.autocommit = True
+    for number, sql in db._migrations():
+        if number <= 3:
+            c.executescript(sql)
+    c.execute("INSERT INTO digests (slot, local_date, status) VALUES ('08:30', '2026-11-07', 'sent')")
+    assert db._current_version(c) == 3
+    assert migrate(c) == 4
+    cols = {r["name"] for r in c.execute("PRAGMA table_info(digests)")}
+    assert "kind" in cols
+    assert c.execute("SELECT kind FROM digests").fetchone()["kind"] == "main"
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 4
+    assert migrate(c) == 4  # a second run is a no-op
+    assert c.execute("SELECT COUNT(*) FROM schema_version WHERE version = 4").fetchone()[0] == 1
+    c.close()
