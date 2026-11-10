@@ -155,7 +155,8 @@ def test_insights_escapes_untrusted_text():
     assert "a&lt;b" in text and "q&amp;" in text and "&lt;u&gt;" in text and "&lt;script&gt;" in text
     assert "<script>" not in text and "<u>" not in text and "a<b" not in text
     assert set(re.findall(r"</?(\w+)", text)) <= {"b", "i", "a", "code"}
-    assert "<b>x" not in text  # the description's <b> is not a real tag
+    assert "k&lt;i&gt;" in text  # escaped kind
+    assert "o/&lt;b&gt;x" in text  # escaped repo name
 
 
 def test_insights_legend_lists_only_present_icons():
@@ -216,3 +217,22 @@ def test_render_unchanged_when_insights_off():
     ]
     d.insights = True
     assert render_digest(d) != render_digest(Digest("08:30", "2026-11-07", [section], [], []))
+
+
+def test_insights_releases_render_last_in_section():
+    d = idigest(
+        new_repos=[item("new", "o/n", stars=1, facets=[])],
+        releases=[item("release", "o/rel", tag="v1")],
+        movers=[item("mover", "o/m", stars=1, stars_delta_1d=5, facets=[])],
+        stack_changes=[item("stack", "o/s", changes=[{"path": "p", "added": ["a"]}])],
+    )
+    lines = render_digest(d)
+    pos = {k: next(i for i, ln in enumerate(lines) if f"o/{k}</a>" in ln) for k in ("n", "rel", "m", "s")}
+    assert pos["n"] < pos["m"] < pos["s"] < pos["rel"]
+
+
+def test_insights_legend_explains_counter_only_icons():
+    d = idigest(new_repos=[item("new", stars=1, facets=[])], more_by_kind={"found": 3, "stack": 0})
+    lines = render_digest(d)
+    assert lines[-2] == "🆕 new repo · 🔎 newly found · tags = decider answers (p ≥ 0.70)"
+    assert lines[-1] == "…and 3 more: 3 🔎 (repka digest --more)"

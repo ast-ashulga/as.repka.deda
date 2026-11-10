@@ -132,6 +132,7 @@ def _insight_item(item: DigestItem) -> str:
 
 def _insights_footer(d: Digest) -> list[str]:
     present = {i.line_kind for s in d.sections for i in (*s.new_repos, *s.releases, *s.movers, *s.stack_changes)}
+    present |= {k for s in d.sections for k, n in s.more_by_kind.items() if n > 0}  # icons in the counter
     legend = [f"{icon} {text}" for kind, (icon, text) in _LEGEND.items() if kind in present]
     legend.append(f"tags = decider answers (p ≥ {d.facet_min_p:.2f})")
     out = ["", " · ".join(legend)]
@@ -156,9 +157,9 @@ def render_digest(d: Digest) -> list[str]:
         lines += ["", f"<b>{_text(s.domain_name)}</b>"]
         if d.insights:
             lines += [_insight_item(i) for i in s.new_repos]
-            lines += [_release_line(i) for i in s.releases]
             lines += [_insight_item(i) for i in s.movers]
             lines += [_stack_line(i) for i in s.stack_changes]
+            lines += [_release_line(i) for i in s.releases]  # releases close the section
             continue
         lines += [_repo_line(i) for i in s.new_repos]
         lines += [_release_line(i) for i in s.releases]
