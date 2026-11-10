@@ -19,7 +19,7 @@ import logging
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 
 from repka.config import AppConfig
@@ -81,10 +81,13 @@ def due_domains(domains: list[Domain], states: dict[str, DomainState], now: date
     return due
 
 
-def _enrich_targets(conn: sqlite3.Connection, domain_id: str) -> tuple[list[int], set[int]]:
+def _enrich_targets(
+    conn: sqlite3.Connection, domain_id: str, now: datetime | None = None, refresh_every: timedelta = timedelta(0)
+) -> tuple[list[int], set[int]]:
     """(repos to snapshot, accepted ids). Targets: repos matched after their latest snapshot (this scan's
     finds, and finds of an earlier interrupted run that never got enriched), repos never snapshotted, and
-    all accepted repos. `gone` repos are skipped."""
+    accepted repos whose latest snapshot is at least `refresh_every` old (0 = all of them). `gone` repos
+    are skipped."""
     targets: list[int] = []
     accepted: set[int] = set()
     for row in repo.repos_for_domain(conn, domain_id):
@@ -94,7 +97,9 @@ def _enrich_targets(conn: sqlite3.Connection, domain_id: str) -> tuple[list[int]
         if is_accepted:
             accepted.add(row["repo_id"])
         latest = repo.latest_snapshot(conn, row["repo_id"])
-        if is_accepted or latest is None or iso(latest.taken_at) < row["last_matched_at"]:
+        if latest is None or iso(latest.taken_at) < row["last_matched_at"]:
+            targets.append(row["repo_id"])
+        elif is_accepted and (now is None or now - latest.taken_at >= refresh_every):
             targets.append(row["repo_id"])
     return targets, accepted
 
@@ -151,7 +156,7 @@ def _collect_one(
     search, _seen = collect_search(
         client, conn, d, window, iso(now), limit, emit_new, per_page=cfg.github.per_page, progress=on_query
     )
-    targets, accepted = _enrich_targets(conn, d.id)
+    targets, accepted = _enrich_targets(conn, d.id, now, cfg.collect.accepted_refresh_every)
     rep.step(f"{d.id} enrich", "repos", len(targets))
     say(f"{prefix}   enriching {len(targets)} repos ({len(accepted & set(targets))} accepted get slow metrics)")
 

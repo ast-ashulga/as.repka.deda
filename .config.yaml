@@ -11,8 +11,9 @@ collect:
   first_window: 90d            # backfill window on a domain's first scan (pushed:>=); first scan is a silent baseline
   overlap: 1d                  # incremental scans use pushed:>= last_scan - overlap
   max_repos_per_domain_scan: 3000
-  enrich_batch: 25             # GraphQL nodes per query
+  enrich_batch: 50             # GraphQL nodes per query
   slow_metrics_every: 7d       # contributors + participation refresh period
+  accepted_refresh_every: 20h  # accepted repos not matched by the search are re-snapshotted at most this often (0s = every scan)
 
 triage:
   enabled: true                # run decider triage during `repka run`

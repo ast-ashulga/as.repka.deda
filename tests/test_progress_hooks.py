@@ -76,7 +76,7 @@ def run_collect(tmp_path, monkeypatch, reporter):
 
     monkeypatch.setattr(collect_mod, "collect_search", fake_search)
     monkeypatch.setattr(collect_mod, "enrich_repos", fake_enrich)
-    monkeypatch.setattr(collect_mod, "_enrich_targets", lambda conn, did: (list(range(120)), set()))
+    monkeypatch.setattr(collect_mod, "_enrich_targets", lambda conn, did, *_: (list(range(120)), set()))
     kwargs = {} if reporter is None else {"reporter": reporter}
     collect_mod.collect_domains(object(), conn, [collect_domain()], AppConfig(), NOW, progress=messages.append, **kwargs)
     conn.close()

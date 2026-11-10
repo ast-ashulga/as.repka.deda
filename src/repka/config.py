@@ -78,6 +78,9 @@ class CollectConfig:
     max_repos_per_domain_scan: int = 3000
     enrich_batch: int = 50  # GraphQL nodes per query
     slow_metrics_every: timedelta = timedelta(days=7)  # contributors + participation refresh period
+    # an accepted repo that the scan's search did not match is re-snapshotted only when its latest snapshot is at least
+    # this old; 0 = every scan (no throttling)
+    accepted_refresh_every: timedelta = timedelta(0)
 
 
 @dataclass(frozen=True)
@@ -261,6 +264,7 @@ def load_collect(raw: Any) -> CollectConfig:
             "max_repos_per_domain_scan": _int,
             "enrich_batch": _int,
             "slow_metrics_every": _duration,
+            "accepted_refresh_every": _duration,
         },
     )
 

@@ -52,3 +52,24 @@ def test_prune_drops_low_star_repos_and_cuts_readmes(tmp_path):
     assert [r[0] for r in conn.execute("SELECT full_name FROM repos")] == ["a/high"]
     assert conn.execute("SELECT length(body) FROM http_cache").fetchone()[0] == 10
     assert conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 1
+
+
+def test_prune_thins_old_snapshots_to_one_per_week(tmp_path):
+    conn = connect(tmp_path / "t.db")
+    migrate(conn)
+    repo.upsert_repo(conn, _hit(1, "a/x"), "2026-01-01T00:00:00Z")
+    repo.link_domain_repo(conn, "dd", 1, "k", "2026-01-01T00:00:00Z")  # held by a domain: not an orphan
+    days = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-13", "2026-10-30", "2026-10-31"]  # 3 in one ISO week
+    for day in days:
+        conn.execute(
+            "INSERT INTO snapshots (repo_id, taken_at, stars, forks, open_issues, watchers, commits_7d, commits_30d,"
+            " releases_90d) VALUES (1, ?, 10, 0, 0, 0, 0, 0, 0)",
+            (f"{day}T08:00:00Z",),
+        )
+    conn.commit()
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+    report = prune(conn, [], 4000, apply=True, snapshot_days=90, now=now)
+    kept = [r[0][:10] for r in conn.execute("SELECT taken_at FROM snapshots ORDER BY taken_at")]
+    assert report.snapshots_thinned == 2
+    assert kept == ["2026-01-07", "2026-01-13", "2026-10-30", "2026-10-31"]
+    assert prune(conn, [], 4000, apply=True, snapshot_days=0, now=now).snapshots_thinned == 0

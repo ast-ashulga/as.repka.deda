@@ -8,7 +8,9 @@ What it does (dry run unless --apply):
      kept, so digest history stays readable.
   3. Cached README bodies in `http_cache` are cut to `triage.readme_chars` (the ETag stays, so a 304
      still works).
-  4. With --apply the file is VACUUMed so the space is returned to the disk.
+  4. Snapshots older than --snapshot-days (default 90) are thinned to the last one of each ISO week per
+     repo; newer snapshots and every repo's latest snapshot are never touched. 0 turns this off.
+  5. With --apply the file is VACUUMed so the space is returned to the disk.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 from repka.config import ConfigError, db_path, load_config
 from repka.domain.schema import Domain, load_domains
@@ -35,6 +38,7 @@ class PruneReport:
     repos_deleted: int = 0
     cache_rows_deleted: int = 0
     readme_bodies_cut: int = 0
+    snapshots_thinned: int = 0
 
 
 def _leaving(conn: sqlite3.Connection, domain: Domain) -> list[int]:
@@ -62,7 +66,17 @@ def _orphans(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def prune(conn: sqlite3.Connection, domains: list[Domain], readme_chars: int, apply: bool) -> PruneReport:
+DEFAULT_SNAPSHOT_DAYS = 90
+
+
+def prune(
+    conn: sqlite3.Connection,
+    domains: list[Domain],
+    readme_chars: int,
+    apply: bool,
+    snapshot_days: int = DEFAULT_SNAPSHOT_DAYS,
+    now: datetime | None = None,
+) -> PruneReport:
     """Run inside one transaction; roll back on a dry run so the counts are exact but nothing changes."""
     report = PruneReport()
     try:
@@ -90,6 +104,17 @@ def prune(conn: sqlite3.Connection, domains: list[Domain], readme_chars: int, ap
             (readme_chars, f"{API_PREFIX}%/readme", readme_chars),
         )
         report.readme_bodies_cut = cur.rowcount
+        if snapshot_days > 0:
+            cutoff = ((now or datetime.now(UTC)) - timedelta(days=snapshot_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            cur = conn.execute(
+                """
+                DELETE FROM snapshots WHERE taken_at < ? AND (repo_id, taken_at) NOT IN (
+                    SELECT repo_id, MAX(taken_at) FROM snapshots GROUP BY repo_id, strftime('%Y-%W', taken_at)
+                )
+                """,
+                (cutoff,),
+            )
+            report.snapshots_thinned = cur.rowcount
         if apply:
             conn.commit()
         else:
@@ -114,7 +139,7 @@ def _run(args: argparse.Namespace) -> int:
     try:
         migrate(conn)
         before = path.stat().st_size
-        report = prune(conn, domains, cfg.triage.readme_chars, args.apply)
+        report = prune(conn, domains, cfg.triage.readme_chars, args.apply, args.snapshot_days)
         if args.apply:
             conn.execute("VACUUM")
     finally:
@@ -126,6 +151,7 @@ def _run(args: argparse.Namespace) -> int:
     print(f"  repos deleted (held by no domain, not in a digest): {report.repos_deleted}")
     print(f"  http_cache rows of those repos deleted: {report.cache_rows_deleted}")
     print(f"  cached README bodies cut to {cfg.triage.readme_chars} chars: {report.readme_bodies_cut}")
+    print(f"  snapshots older than {args.snapshot_days} days thinned to one per week: {report.snapshots_thinned}")
     if args.apply:
         print(f"  file size: {before / 1048576:.1f} MB -> {path.stat().st_size / 1048576:.1f} MB")
     return 0
@@ -143,4 +169,11 @@ def register(db_sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     cmd.add_argument("--apply", action="store_true", help="actually delete (default: dry run, nothing changes)")
+    cmd.add_argument(
+        "--snapshot-days",
+        type=int,
+        default=DEFAULT_SNAPSHOT_DAYS,
+        metavar="N",
+        help=f"keep every snapshot of the last N days, thin older ones to one per week (default {DEFAULT_SNAPSHOT_DAYS}; 0 = keep all)",
+    )
     cmd.set_defaults(func=_command)

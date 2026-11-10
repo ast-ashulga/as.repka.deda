@@ -188,6 +188,23 @@ def test_enrich_targets_cover_earlier_partial_run_and_accepted(conn, monkeypatch
     assert fakes.enriched[0]["now"] == NOW
 
 
+def test_enrich_targets_throttle_accepted_by_refresh_every(conn):
+    from repka.collect import _enrich_targets
+
+    for rid, age_h in ((1, 30), (2, 10)):  # both accepted, matched before their snapshot
+        repo.upsert_repo(conn, hit(rid), "2026-11-01T00:00:00Z")
+        repo.link_domain_repo(conn, "alpha", rid, "q", "2026-11-01T00:00:00Z")
+        snap = collect_snapshot(rid)
+        repo.insert_snapshot(conn, snap.__class__(**{**snap.__dict__, "taken_at": NOW - timedelta(hours=age_h)}))
+        conn.execute(
+            "INSERT INTO verdicts (repo_id, domain_id, model, questions_hash, input_hash, accepted, decided_at) "
+            "VALUES (?, 'alpha', 'm', 'q', 'i', 1, ?)", (rid, "2026-11-01T00:00:00Z"))
+    conn.commit()
+    assert _enrich_targets(conn, "alpha", NOW, timedelta(0))[0] == [1, 2]  # no throttling
+    assert _enrich_targets(conn, "alpha", NOW, timedelta(hours=20))[0] == [1]  # 2 is fresher than 20h
+    assert _enrich_targets(conn, "alpha")[0] == [1, 2]  # legacy call without a clock
+
+
 def collect_snapshot(repo_id):
     from repka.models import Snapshot
 
