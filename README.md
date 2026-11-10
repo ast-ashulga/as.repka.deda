@@ -203,12 +203,42 @@ uv run repka run --json               # machine-readable report on stdout (progr
 uv run repka run --send               # also deliver the digest (needs notify.enabled: true; or set run.send: true)
 ```
 
+### Watching a run (phase, progress, ETA)
+
+By default `repka run` prints one plain line per event on stderr. Pick a richer view with `--progress MODE` or
+`run.progress` in `.config.yaml` (the default stays `plain`):
+
+| Mode | For | What you get on stderr |
+|---|---|---|
+| `live` | a person at a terminal | one redrawn line: stage `2/4`, domain, `400/1200 repos 33%`, bar, elapsed, `eta ~2m40s (at 14:05)`; finished stages stay as `✓ collect 2m10s` lines (without a TTY it behaves like `lines`) |
+| `lines` | `logs/launchd.log`, `tail -f`, an agent reading text | timestamped lines at every stage and domain change and at most one progress line per 10 s |
+| `jsonl` | a script or agent parsing events | one JSON object per line (`plan`, `stage_start`, `step`, `progress`, `stage_end`, `note`, `log`, `summary`), nothing else; stdout is unchanged |
+
+```bash
+uv run repka run --progress live
+uv run repka run --progress jsonl 2> run.events.jsonl
+```
+
+From another terminal or an agent, while a run is going (any mode, including a scheduled one):
+
+```bash
+uv run repka status          # stage, step, done/total, elapsed, eta, heartbeat age; or how the last run ended
+uv run repka status --json   # the same as JSON; state is running | idle | died | none
+```
+
+`repka status` trusts the run lock, not the file: a snapshot that says `running` while no process holds the lock
+is shown as `died`. The ETA is "at the current pace": it needs a few seconds and one finished unit, later stages are
+estimated from your last runs (stored in `runs.stats_json`), and when a part has no estimate you see a lower bound
+(`eta >2m`) or `eta ?` instead of a guess. Triage progress moves in chunks of 200 repos because the model worker
+answers per chunk.
+
 A stage that fails never stops the digest: a GitHub rate limit or a crashed decider worker makes the run `partial`
 (exit 0, the next run continues); exit 1 only when every stage failed, 2 for a configuration error (for example
 `--send` while `notify.enabled` is false). The summary ends with hints explaining why a run did less than expected.
 Two runs never overlap, and every run is a row in `runs` (`repka db stats`). The very first run of a domain can take
 a while (measured on an M-series Mac: GraphQL enrichment about 20 s per 50 repos, triage about 2 s per repo, so a
-first scan of 230 repos took 8 minutes): progress lines on stderr show where it is, and an interrupted run resumes.
+first scan of 230 repos took 8 minutes): progress on stderr (see "Watching a run") shows where it is, and an
+interrupted run resumes.
 
 ## Telegram (digest delivery)
 

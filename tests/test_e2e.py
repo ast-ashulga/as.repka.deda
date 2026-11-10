@@ -305,3 +305,44 @@ def test_pass_with_insights_and_releases_message(tmp_path):
         assert len(rig.sender.calls) == 2
     finally:
         conn.close()
+
+
+def test_observed_pass_reports_every_stage_with_real_counts(rig):
+    """A whole pass with the real stages and the progress hooks wired: stages in order, real done/total, timings."""
+    import dataclasses
+    import io
+    import json
+
+    from repka.progress import RunProgress
+    from repka.progress.render import JsonlRenderer
+
+    baseline(rig)
+    rig.world.visible = [10, 11, 12, 13]
+    out = io.StringIO()
+    prog = RunProgress(sinks=[JsonlRenderer(out, lambda: 0.0, lambda: 1_700_000_000.0, interval=0)])
+    b, cfg, conn = rig.boundaries(), rig.cfg, rig.conn
+    b = dataclasses.replace(
+        b,
+        collect=lambda ds, now: collect_domains(
+            rig.client, conn, due_domains(ds, {d.id: repo.get_domain_state(conn, d.id) for d in ds}, now), cfg, now,
+            reporter=prog,
+        ),
+        triage=lambda d, now: triage_domain(
+            conn, d, rig.backend, rig.questions, "fake", cfg.triage.thresholds, rig.client.readme,
+            cfg.triage.readme_chars, iso(now), on_progress=prog.advance,
+        ),
+        embed=lambda d, now: embed_domain(conn, d.id, rig.embedder, cfg.embed.batch, iso(now), on_progress=prog.advance),
+    )  # fmt: skip
+    report = run_pass([DOMAIN], cfg, b, local(7, 8, 45), True, reporter=prog)
+    prog.finish(report.status)
+
+    events = [json.loads(line) for line in out.getvalue().splitlines()]  # every line is JSON
+    ends = [(e["stage"], e["status"]) for e in events if e["event"] == "stage_end"]
+    assert [s for s, _ in ends] == ["collect", "triage", "embed", "digest"] and ends[0][1] == "ok"
+    steps = [e["label"] for e in events if e["event"] == "step"]
+    assert "mcp search" in steps and "mcp enrich" in steps and "mcp" in steps
+    triage_done = [e["current"]["done"] for e in events if e["event"] == "progress" and e["current"]["stage"] == "triage"]
+    assert triage_done[0] == 0 and triage_done[-1] == 3  # real chunk counts: 3 new repos decided
+    assert events[-1]["event"] == "summary" and events[-1]["status"] == "ok"
+    timings = prog.timings()
+    assert set(timings) == {"collect", "triage", "embed", "digest"} and timings["triage"]["items"] == 3

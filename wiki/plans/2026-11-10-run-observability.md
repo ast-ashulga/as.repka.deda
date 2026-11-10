@@ -129,3 +129,14 @@
 - [ ] **Step 3: Update docs** as listed; mention D1's open question in README only as "default is `plain`".
 - [ ] **Step 4: Run** `uv run pytest -q` and `uv run ruff check src tests` -> all green; verify `git diff main --stat` touches only expected files.
 - [ ] **Step 5: Commit** `docs(run): observability modes, status command, architecture`.
+
+---
+
+## Deviations recorded during implementation
+
+- `PlainRenderer` was dropped: `plain` is the legacy string callback (`run_cli._progress`) and needs no sink; `make_renderer("plain")` returns `None`. The status-file sink still runs in `plain`.
+- `Reporter.stage_end` gained an optional `items: int | None` so stages without steps (digest, releases) leave a history sample.
+- `activate(renderer)` takes the renderer itself; `progress.events.notify(callback, *args)` is the shared "call a callback, never fail the stage" helper.
+- In `jsonl`, the run-level status is the field `run_status` (a stage's own `status` lives in `stage_end`); found by a test, not by review.
+- The ROADMAP task board is untouched: its rows are tied to GitHub issues and this feature has none.
+- Tasks were implemented natively in one session (not one subagent per task); the whole branch gets one fresh review (see the branch's final report).
