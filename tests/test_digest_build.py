@@ -4,7 +4,7 @@ import pytest
 from helpers_digest import add_event, add_repo, add_snapshot, add_verdict
 
 from repka.config import DigestConfig
-from repka.digest.build import build_digest
+from repka.digest.build import MAX_FACETS, build_digest, facet_tags
 from repka.domain.schema import Domain, SearchSpec
 
 from helpers_digest import make_db
@@ -167,3 +167,83 @@ def test_builder_writes_nothing(conn):
     build(conn)
     assert conn.total_changes == before
     assert conn.execute("SELECT COUNT(*) FROM events WHERE digest_id IS NULL").fetchone()[0] == 2
+
+
+INSIGHTS = DigestConfig(
+    max_items_per_domain=10, new_max_age=timedelta(days=90), star_spike_min_delta=50, insights=True
+)
+
+
+def _noul(p):
+    return {"type": "noul", "p": p, "pred": True, "conf": p}
+
+
+def test_facet_tags_filters_sorts_and_caps():
+    answers = {
+        "relevant": _noul(0.99),
+        "substance": {"type": "score", "pred": 4, "score": 4.0, "conf": 0.6, "probs": {}},
+        "kind": {"type": "choice", "pred": "tool", "conf": 0.7, "probs": {}},
+        "e": _noul(0.60),
+        "d": _noul(0.72),
+        "c": _noul(0.75),
+        "b": _noul(0.80),
+        "a": _noul(0.95),
+        "is_junk": _noul(0.99),
+    }
+    assert MAX_FACETS == 3
+    assert facet_tags(answers, 0.7) == [("a", 0.95), ("b", 0.8), ("c", 0.75)]
+
+
+def test_facet_tags_ties_sorted_by_id_and_ignores_malformed():
+    answers = {"z": _noul(0.9), "y": _noul(0.9), "bad": {"type": "noul"}, "s": "x", "c": {"type": "choice", "p": 0.99}}
+    assert facet_tags(answers, 0.7) == [("y", 0.9), ("z", 0.9)]
+
+
+def test_facet_tags_empty_without_noul_extras():
+    base = {
+        "relevant": _noul(0.99),
+        "substance": {"type": "score", "pred": 4, "score": 4.0, "conf": 0.6, "probs": {}},
+        "kind": {"type": "choice", "pred": "tool", "conf": 0.7, "probs": {}},
+        "is_junk": _noul(0.99),
+    }
+    assert facet_tags(base, 0.7) == []
+    assert facet_tags({}, 0.7) == []
+
+
+def test_insights_items_carry_facets(conn):
+    add_repo(conn, 1, created="2026-10-01T00:00:00Z")  # new
+    add_repo(conn, 2, created="2019-05-01T00:00:00Z")  # found
+    add_verdict(conn, 1, True, extra_answers={"self_modifies": _noul(0.94)})
+    add_verdict(conn, 2, True)
+    for r in (1, 2):
+        add_event(conn, r, "new_repo")
+    [section] = build(conn, INSIGHTS).sections
+    by_id = {i.repo_id: i for i in section.new_repos}
+    assert by_id[1].text_fields["facets"] == [("self_modifies", 0.94)]
+    assert by_id[2].text_fields["facets"] == []
+
+
+def test_insights_off_adds_no_facets_field(conn):
+    add_repo(conn, 1, created="2026-10-01T00:00:00Z")
+    add_verdict(conn, 1, True, extra_answers={"self_modifies": _noul(0.94)})
+    add_event(conn, 1, "new_repo")
+    [section] = build(conn).sections
+    assert "facets" not in section.new_repos[0].text_fields
+
+
+def test_mover_item_enriched_with_description_and_kind(conn):
+    t_old = NOW - timedelta(days=2)
+    add_repo(conn, 1, stars=500, taken_at=t_old, description="spiky tool")
+    add_snapshot(conn, 1, 600, NOW - timedelta(hours=1))
+    add_repo(conn, 2, stars=500, taken_at=t_old, description="no facets")
+    add_snapshot(conn, 2, 600, NOW - timedelta(hours=1))
+    add_verdict(conn, 1, True, substance=4, kind="framework", extra_answers={"self_modifies": _noul(0.94)})
+    add_verdict(conn, 2, True)
+    off = {i.repo_id: i for i in items(build(conn))}
+    assert set(off[1].text_fields) == {"stars_delta_1d", "velocity", "stars"}
+    on = {i.repo_id: i for i in items(build(conn, INSIGHTS))}
+    f = on[1].text_fields
+    assert (f["description"], f["kind"], f["level"], f["stars"]) == ("spiky tool", "framework", 4, 600)
+    assert f["facets"] == [("self_modifies", 0.94)]
+    assert f["stars_delta_1d"] == 100
+    assert on[2].text_fields["facets"] == []

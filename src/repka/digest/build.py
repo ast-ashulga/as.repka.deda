@@ -19,6 +19,21 @@ from repka.store.metrics import repo_metrics
 from repka.store.repo import _iso, _parse, latest_snapshot
 
 MOVER_REPEAT_WINDOW = timedelta(hours=24)
+BASE_QUESTIONS = frozenset({"relevant", "substance", "kind", "is_junk"})
+MAX_FACETS = 3
+
+
+def facet_tags(answers: dict[str, Any], min_p: float) -> list[tuple[str, float]]:
+    """Domain-specific `noul` answers (not the base questions) with p >= min_p: (question id, p), best first."""
+    tags: list[tuple[str, float]] = []
+    for qid, ans in answers.items():
+        if qid in BASE_QUESTIONS or not isinstance(ans, dict) or ans.get("type") != "noul":
+            continue
+        p = ans.get("p")
+        if isinstance(p, (int, float)) and not isinstance(p, bool) and p >= min_p:
+            tags.append((qid, float(p)))
+    tags.sort(key=lambda t: (-t[1], t[0]))
+    return tags[:MAX_FACETS]
 
 
 @dataclass
@@ -152,6 +167,8 @@ def _domain_section(
         }
         if not is_new and created is not None:
             fields["since"] = created.year
+        if cfg.insights:
+            fields["facets"] = facet_tags(a, cfg.facet_min_p)
         sub, rel = _num(a, "substance", "pred"), _num(a, "relevant", "p")
         item = DigestItem(
             domain.id,
@@ -204,12 +221,12 @@ def _domain_section(
         stack_cands.append(((-stars, repo_id), item, [e["id"] for e in evs]))
 
     mover_cands: list[_Cand] = []
-    for repo_id, (accepted, _a) in verdicts.items():
+    for repo_id, (accepted, a) in verdicts.items():
         if not accepted or repo_id in recent_movers:
             continue
         row = conn.execute(
             """
-            SELECT r.full_name, r.html_url FROM repos r JOIN domain_repos dr ON dr.repo_id = r.repo_id
+            SELECT r.full_name, r.html_url, r.description FROM repos r JOIN domain_repos dr ON dr.repo_id = r.repo_id
             WHERE dr.domain_id = ? AND r.repo_id = ?
             """,
             (domain.id, repo_id),
@@ -219,17 +236,27 @@ def _domain_section(
         m = repo_metrics(conn, repo_id, now)
         if m is None or m.stars_delta_1d is None or m.stars_delta_1d < cfg.star_spike_min_delta:
             continue
+        mover_fields: dict[str, Any] = {
+            "stars_delta_1d": m.stars_delta_1d,
+            "velocity": m.velocity,
+            "stars": m.stars,
+        }
+        if cfg.insights:
+            kind = (a.get("kind") or {}).get("pred") if isinstance(a.get("kind"), dict) else None
+            level = (a.get("substance") or {}).get("pred") if isinstance(a.get("substance"), dict) else None
+            mover_fields.update(
+                description=row["description"],
+                kind=kind if isinstance(kind, str) else None,
+                level=level if isinstance(level, int) and not isinstance(level, bool) else None,
+                facets=facet_tags(a, cfg.facet_min_p),
+            )
         item = DigestItem(
             domain.id,
             repo_id,
             row["full_name"],
             row["html_url"],
             "mover",
-            {
-                "stars_delta_1d": m.stars_delta_1d,
-                "velocity": m.velocity,
-                "stars": m.stars,
-            },
+            mover_fields,
             float(m.stars_delta_1d),
         )
         mover_cands.append(((-m.stars_delta_1d, repo_id), item, []))

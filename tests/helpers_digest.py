@@ -83,6 +83,7 @@ def add_verdict(
     kind="tool",
     model="m",
     decided="2026-11-06T00:00:00Z",
+    extra_answers: dict | None = None,
 ):
     answers = {
         "relevant": {"type": "noul", "p": relevant, "pred": True, "conf": relevant},
@@ -95,6 +96,7 @@ def add_verdict(
         },
         "kind": {"type": "choice", "pred": kind, "conf": 0.7, "probs": {}},
     }
+    answers.update(extra_answers or {})
     conn.execute(
         "INSERT INTO verdicts (repo_id, domain_id, model, questions_hash, input_hash, answers_json, accepted, decided_at)"
         " VALUES (?, ?, ?, 'q', 'i', ?, ?, ?)",
