@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -14,6 +15,11 @@ from repka.collect_cli import domain_line
 from repka.config import ConfigError, domains_dir, load_config, state_dir
 from repka.domain.schema import Domain, get_domain, load_domains
 from repka.pipeline import PassReport
+from repka.progress import RunProgress
+from repka.progress.active import activate, stderr_line
+from repka.progress.eta import history_medians
+from repka.progress.render import MODES, make_renderer
+from repka.progress.status import StatusFileSink
 from repka.runlock import LockBusy, RunLock
 from repka.store import repo
 from repka.store.db import connect, migrate
@@ -24,7 +30,9 @@ EPILOG = """\
 Order: collect (domains that are due) -> triage (only if triage.enabled) -> embed (only if embed.enabled) ->
 digest (always built; delivered only with --send or run.send, and notify.enabled). A failing stage never stops
 the digest: a GitHub rate limit or a crashed worker makes the run `partial`, and the next run continues.
-Progress goes to stderr; the summary (or --json) goes to stdout. Exit 0 for ok/partial, 1 for failed, 2 for a
+Progress goes to stderr (`--progress`/`run.progress`: plain = one line per event, live = redrawn status line with
+ETA on a terminal, lines = timestamped lines for logs, jsonl = one JSON event per line for programs); the summary
+(or --json) goes to stdout. Whatever the mode, `.state/progress.json` and `repka status` show a running pass. Exit 0 for ok/partial, 1 for failed, 2 for a
 configuration error. Only one run at a time: a second one exits 0 immediately. Every run is recorded in `runs`
 (see `repka db stats`).
 """
@@ -32,6 +40,17 @@ configuration error. Only one run at a time: a second one exits 0 immediately. E
 
 def _progress(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
+
+
+def _make_progress(conn, mode: str, run_id: int):
+    """The run's `RunProgress` (state machine) and the renderer that owns stderr (None for `plain`)."""
+    rows = conn.execute(
+        "SELECT stats_json FROM runs WHERE kind = 'run' AND status IN ('ok', 'partial') ORDER BY id DESC LIMIT 20"
+    ).fetchall()
+    renderer = make_renderer(mode, sys.stderr, is_tty=sys.stderr.isatty(), clock=time.monotonic, wall=time.time)
+    status_file = StatusFileSink(state_dir() / "progress.json", os.getpid(), run_id, mode)
+    sinks = [status_file] if renderer is None else [renderer, status_file]
+    return RunProgress(history=history_medians(r["stats_json"] for r in rows), sinks=sinks), renderer
 
 
 def _select(domain_id: str | None) -> list[Domain]:
@@ -130,36 +149,48 @@ def _run(args: argparse.Namespace) -> int:
 def _run_locked(args: argparse.Namespace, cfg, domains: list[Domain], now: datetime, send: bool) -> int:
     conn = connect()
     boundaries = None
+    progress = None
     try:
         migrate(conn)
         run_id = repo.start_run(conn, "run")
         conn.commit()
         started = time.monotonic()
-        _progress(f"run #{run_id}: {len(domains)} domain(s), send={'yes' if send else 'no'}")
-        try:
-            boundaries = pipeline.build_boundaries(conn, cfg, domains, force=bool(args.domain), progress=_progress)
-            report = pipeline.run_pass(domains, cfg, boundaries, now, send, progress=_progress)
-        except BaseException as exc:  # run_pass catches stage errors; this is the net under it (also Ctrl-C):
-            log.exception("run #%s crashed", run_id)  # the run is still recorded, never left without a status
-            repo.finish_run(conn, run_id, "failed", {}, f"{type(exc).__name__}: {exc}")
+        mode = args.progress or cfg.run.progress
+        progress, renderer = _make_progress(conn, mode, run_id)
+        legacy = _progress if renderer is None else None  # `plain` keeps today's lines; the others use events
+        with activate(renderer):
+            stderr_line(f"run #{run_id}: {len(domains)} domain(s), send={'yes' if send else 'no'}")
+            try:
+                boundaries = pipeline.build_boundaries(
+                    conn, cfg, domains, force=bool(args.domain), progress=legacy or progress.note, reporter=progress
+                )
+                report = pipeline.run_pass(domains, cfg, boundaries, now, send, progress=legacy, reporter=progress)
+            except BaseException as exc:  # run_pass catches stage errors; this is the net under it (also Ctrl-C):
+                log.exception("run #%s crashed", run_id)  # the run is still recorded, never left without a status
+                repo.finish_run(conn, run_id, "failed", {}, f"{type(exc).__name__}: {exc}")
+                conn.commit()
+                progress.finish("failed")  # ends the live line and finalises the status file
+                if not isinstance(exc, Exception):
+                    raise
+                stderr_line(f"error: run crashed: {exc} (see logs/repka.log)", "ERROR")
+                return 1
+            errors = "; ".join(report.errors) or None
+            stats = {**pipeline.report_dict(report, full=False), "timings": progress.timings()}
+            repo.finish_run(conn, run_id, report.status, stats, errors)
             conn.commit()
-            if not isinstance(exc, Exception):
-                raise
-            print(f"error: run crashed: {exc} (see logs/repka.log)", file=sys.stderr)
-            return 1
-        errors = "; ".join(report.errors) or None
-        repo.finish_run(conn, run_id, report.status, pipeline.report_dict(report, full=False), errors)
-        conn.commit()
-        seconds = time.monotonic() - started
-        hints = pipeline.explain(report, cfg)
-        if args.json:
-            payload = {"run_id": run_id, "duration_s": round(seconds, 1), **pipeline.report_dict(report, full=True), "hints": hints}
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
-            print(f"run #{run_id}: {report.status} in {seconds:.0f}s", file=sys.stderr)
-        else:
-            print(_text(run_id, report, hints, seconds, cfg.digest.releases_message))
-        return 1 if report.status == "failed" else 0
+            seconds = time.monotonic() - started
+            progress.finish(report.status)
+            hints = pipeline.explain(report, cfg)
+            if args.json:
+                payload = {"run_id": run_id, "duration_s": round(seconds, 1), **pipeline.report_dict(report, full=True), "hints": hints}
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+                stderr_line(f"run #{run_id}: {report.status} in {seconds:.0f}s")
+            else:
+                print(_text(run_id, report, hints, seconds, cfg.digest.releases_message))
+            return 1 if report.status == "failed" else 0
     finally:
+        if progress is not None:
+            progress.finish("failed")  # no-op once finished; covers an exception outside the net above
         if boundaries is not None:
             boundaries.close()
         conn.close()
@@ -175,5 +206,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     run.add_argument("--send", action="store_true", help="deliver the digest to Telegram (same as run.send: true)")
     run.add_argument("--domain", metavar="ID", help="only this domain, collected even if it is not due (preview only: no --send)")
+    run.add_argument(
+        "--progress",
+        choices=MODES,
+        metavar="MODE",
+        help="stderr progress: plain (default, one line per event), live (status line with ETA on a terminal), "
+        "lines (timestamped, for logs), jsonl (JSON events). Default: run.progress in .config.yaml",
+    )
     run.add_argument("--json", action="store_true", help="print the report as JSON on stdout (summary line on stderr)")
     run.set_defaults(func=_run)

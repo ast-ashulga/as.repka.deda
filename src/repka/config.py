@@ -127,6 +127,7 @@ class NotifyConfig:
 class RunConfig:
     send: bool = False  # digests are sent only if notify.enabled AND run.send (or --send)
     log_level: str = "INFO"
+    progress: str = "plain"  # stderr progress while `repka run` works: plain (legacy lines) | live | lines | jsonl
 
 
 @dataclass(frozen=True)
@@ -325,7 +326,11 @@ def load_run(raw: Any) -> RunConfig:
         "run",
         raw,
         RunConfig,
-        {"send": _bool, "log_level": _choice("DEBUG", "INFO", "WARNING", "ERROR")},
+        {
+            "send": _bool,
+            "log_level": _choice("DEBUG", "INFO", "WARNING", "ERROR"),
+            "progress": _choice("plain", "live", "lines", "jsonl"),
+        },
     )
 
 

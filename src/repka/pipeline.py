@@ -27,6 +27,7 @@ from repka.embed import cli as embed_cli
 from repka.embed.embed import EmbedStats, embed_domain
 from repka.embed.ollama import EmbedderUnavailable
 from repka.github.client import AuthError, GitHubClient, RateLimited
+from repka.progress import NullReporter, Reporter
 from repka.store import repo
 from repka.textutil import printable
 from repka.triage import cli as triage_cli
@@ -74,11 +75,25 @@ def run_pass(
     now: datetime,
     send: bool,
     progress: Progress | None = None,
+    reporter: Reporter | None = None,
 ) -> PassReport:
-    """collect (due domains) -> triage (if triage.enabled) -> embed (if embed.enabled) -> digest (always)."""
+    """collect (due domains) -> triage (if triage.enabled) -> embed (if embed.enabled) -> digest (always).
+
+    `progress` is the legacy one-line-per-event callback; `reporter` receives the structured stage/step events
+    (stage plan, per-domain steps, outcomes) that drive the progress renderers and the status file.
+    """
     say = progress or (lambda message: None)
+    rep = reporter or NullReporter()
     enabled = [d for d in domains if d.enabled]
     report = PassReport("ok", domains=[d.id for d in enabled], send=send)
+    releases_on = cfg.digest.releases_message and b.releases is not None
+    rep.plan(
+        (["collect"] if enabled else [])
+        + (["triage"] if enabled and cfg.triage.enabled else [])
+        + (["embed"] if enabled and cfg.embed.enabled else [])
+        + ["digest"]
+        + (["releases"] if releases_on else [])
+    )
     attempted = unexpected = 0
     problems = 0  # anything that makes the pass less than complete
 
@@ -94,16 +109,19 @@ def run_pass(
         report.errors.append(_err(stage, exc))
         return known
 
-    def per_domain(stage: str, work: Callable[[Domain], None]) -> None:
+    def per_domain(stage: str, unit: str, work: Callable[[Domain], None]) -> None:
         """Run `work` for each enabled domain. One domain's failure never skips the others, except a backend-level
         one (crashed worker, Ollama down, rejected GitHub token) that the next domain would hit too: that ends the stage."""
         nonlocal attempted, unexpected
         attempted += 1
-        raised_unexpected = succeeded = 0
+        raised_unexpected = succeeded = failed = 0
+        rep.stage_start(stage, steps=len(enabled))
         for d in enabled:
+            rep.step(d.id, unit)
             try:
                 work(d)
             except Exception as exc:
+                failed += 1
                 known = fail(f"{stage} {d.id}", exc)
                 raised_unexpected += not known
                 if isinstance(exc, (WorkerError, EmbedderUnavailable, AuthError)):
@@ -111,25 +129,38 @@ def run_pass(
             else:
                 succeeded += 1
         unexpected += bool(raised_unexpected) and not succeeded
+        detail = f"{succeeded}/{len(enabled)} domain(s)" + (f", {failed} failed" if failed else "")
+        rep.stage_end("error" if failed else "ok", detail)
 
     if enabled:
         attempted += 1
         say(f"collect: {len(enabled)} enabled domain(s)")
+        rep.stage_start("collect")
         try:
             report.collect = b.collect(enabled, now)
+            not_ok = 0
             for r in report.collect.domains:
                 if r.status != "ok":
                     problems += 1
+                    not_ok += 1
                     detail = f": {printable(r.error)}" if r.error else ""
                     report.errors.append(f"collect {r.domain_id}: {r.status}{detail}")
+            if not report.collect.domains:
+                rep.stage_end("skipped", "nothing due")
+            else:
+                scanned = len(report.collect.domains)
+                rep.stage_end("error" if not_ok else "ok", f"{scanned} domain(s)" + (f", {not_ok} not ok" if not_ok else ""))
         except Exception as exc:
             unexpected += not fail("collect", exc)
+            rep.stage_end("error", type(exc).__name__)
 
     def triage_one(d: Domain) -> None:
         nonlocal problems
         say(f"triage: {d.id}")
         stats = report.triage[d.id] = b.triage(d, now)
-        say(f"triage: {d.id}: decided {stats.decided}, accepted {stats.accepted}, pending {stats.pending}")
+        outcome = f"triage: {d.id}: decided {stats.decided}, accepted {stats.accepted}, pending {stats.pending}"
+        say(outcome)
+        rep.note(outcome)
         if stats.rate_limited:
             problems += 1
             report.errors.append(f"triage {d.id}: GitHub rate limit hit while fetching READMEs; repos stay pending")
@@ -140,17 +171,21 @@ def run_pass(
     def embed_one(d: Domain) -> None:
         say(f"embed: {d.id}")
         stats = report.embed[d.id] = b.embed(d, now)
-        say(f"embed: {d.id}: embedded {stats.embedded} of {stats.pending}")
+        outcome = f"embed: {d.id}: embedded {stats.embedded} of {stats.pending}"
+        say(outcome)
+        rep.note(outcome)
 
     if enabled and cfg.triage.enabled:
-        per_domain("triage", triage_one)
+        per_domain("triage", "repos", triage_one)
     if enabled and cfg.embed.enabled:
-        per_domain("embed", embed_one)
+        per_domain("embed", "repos", embed_one)
 
     attempted += 1
     say("digest: " + ("building and sending" if send else "building a preview (not sent)"))
+    rep.stage_start("digest")
     try:
         report.digest = b.digest(now, send)
+        _end_message_stage(rep, report.digest)
         if report.digest.status == "failed":
             problems += 1
             report.errors.append(f"digest: send failed: {printable(report.digest.error or 'unknown error')}")
@@ -159,12 +194,16 @@ def run_pass(
             report.errors.append(f"digest: {printable(report.digest.error)}")
     except Exception as exc:
         unexpected += not fail("digest", exc)
+        rep.stage_end("error", type(exc).__name__)
 
-    if cfg.digest.releases_message and b.releases is not None:  # its own message, after the digest; same failure rules
+    if releases_on:  # its own message, after the digest; same failure rules
         attempted += 1
         say("releases: " + ("building and sending" if send else "building a preview (not sent)"))
+        rep.stage_start("releases")
         try:
+            assert b.releases is not None
             report.releases = b.releases(now, send)
+            _end_message_stage(rep, report.releases)
             if report.releases.status == "failed":
                 problems += 1
                 report.errors.append(f"releases: send failed: {printable(report.releases.error or 'unknown error')}")
@@ -173,12 +212,23 @@ def run_pass(
                 report.errors.append(f"releases: {printable(report.releases.error)}")
         except Exception as exc:
             unexpected += not fail("releases", exc)
+            rep.stage_end("error", type(exc).__name__)
 
     if unexpected == attempted:
         report.status = "failed"
     elif problems:
         report.status = "partial"
     return report
+
+
+def _end_message_stage(rep: Reporter, outcome: DigestOutcome) -> None:
+    """Close the digest/releases stage: a message that was not due is `skipped`, a failed send is an error."""
+    if outcome.status == "not_due":
+        rep.stage_end("skipped", "no slot due")
+    elif outcome.status == "failed":
+        rep.stage_end("error", "send failed", items=1)
+    else:
+        rep.stage_end("ok", f"{outcome.status}, {outcome.item_count} item(s)", items=1)
 
 
 def explain(report: PassReport, cfg: AppConfig) -> list[str]:
@@ -222,6 +272,7 @@ def build_boundaries(
     *,
     force: bool = False,
     progress: Progress | None = None,
+    reporter: Reporter | None = None,
 ) -> Boundaries:
     """The real boundaries. Everything expensive (GitHub client, decider backend, embedder, Telegram sender)
     is built on first use, so a stage that does nothing costs nothing.
@@ -230,6 +281,7 @@ def build_boundaries(
     them even when they are not due.
     """
     say = progress or (lambda message: None)
+    rep = reporter or NullReporter()
     held: dict[str, Any] = {}
     questions: dict[str, deciders.QuestionSet] = {}
 
@@ -247,7 +299,7 @@ def build_boundaries(
                 say(f"collect: {d.id} not due" + (f" until {iso(at)}" if at else ""))
         if not due:
             return CollectReport()
-        return collect_domains(client(), conn, due, cfg, now, progress=say, all_domains=domains)
+        return collect_domains(client(), conn, due, cfg, now, progress=say, all_domains=domains, reporter=rep)
 
     def triage_stage(d: Domain, now: datetime) -> TriageStats:
         if "backend" not in held:
@@ -258,12 +310,13 @@ def build_boundaries(
         return triage.triage_domain(
             conn, d, held["backend"], questions[d.id], cfg.triage.model, cfg.triage.thresholds,
             lambda full_name: client().readme(full_name), cfg.triage.readme_chars, iso(now),
+            on_progress=rep.advance,
         )  # fmt: skip
 
     def embed_stage(d: Domain, now: datetime) -> EmbedStats:
         if "embedder" not in held:
             held["embedder"] = embed_cli.make_embedder(cfg)
-        return embed_domain(conn, d.id, held["embedder"], cfg.embed.batch, iso(now))
+        return embed_domain(conn, d.id, held["embedder"], cfg.embed.batch, iso(now), on_progress=rep.advance)
 
     def digest_stage(now: datetime, send: bool) -> DigestOutcome:
         sender = digest_cli.make_sender(cfg) if send else None

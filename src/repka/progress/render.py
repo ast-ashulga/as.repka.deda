@@ -149,7 +149,7 @@ class JsonlRenderer(_Base):
             if event == "note":
                 self._emit(obj)
                 return
-            obj.update(status=snap["status"], elapsed_s=snap["elapsed_s"], current=snap["current"], overall=snap["overall"])
+            obj.update(run_status=snap["status"], elapsed_s=snap["elapsed_s"], current=snap["current"], overall=snap["overall"])
             if event == "finish":
                 obj["stages"] = snap["stages"]
             self._emit(obj)
