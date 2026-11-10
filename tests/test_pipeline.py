@@ -6,7 +6,7 @@ import pytest
 from repka import pipeline, preflight
 from repka.cli import main
 from repka.collect import CollectReport, DomainReport
-from repka.config import AppConfig, EmbedConfig, TriageConfig
+from repka.config import AppConfig, DigestConfig, EmbedConfig, TriageConfig
 from repka.digest.run import DigestOutcome
 from repka.domain.schema import Domain, SearchSpec
 from repka.embed.embed import EmbedStats
@@ -22,6 +22,7 @@ from repka.triage.triage import TriageStats
 NOW = datetime(2026, 11, 8, 8, 0, 0, tzinfo=UTC)
 ON = AppConfig(triage=TriageConfig(enabled=True), embed=EmbedConfig(enabled=True))
 OFF = AppConfig()
+REL = AppConfig(digest=DigestConfig(releases_message=True))
 
 
 def domain(domain_id="alpha", enabled=True) -> Domain:
@@ -32,9 +33,9 @@ def domain(domain_id="alpha", enabled=True) -> Domain:
 class Fakes:
     """Fake boundaries that record the order of calls; each stage can be told to raise."""
 
-    def __init__(self, collect=None, triage=None, embed=None, digest=None):
+    def __init__(self, collect=None, triage=None, embed=None, digest=None, releases=None):
         self.calls: list[tuple] = []
-        self.overrides = {"collect": collect, "triage": triage, "embed": embed, "digest": digest}
+        self.overrides = {"collect": collect, "triage": triage, "embed": embed, "digest": digest, "releases": releases}
 
     def _stage(self, name, *args, default):
         self.calls.append((name, *args))
@@ -49,6 +50,7 @@ class Fakes:
             triage=lambda d, now: self._stage("triage", d.id, default=TriageStats()),
             embed=lambda d, now: self._stage("embed", d.id, default=EmbedStats()),
             digest=lambda now, send: self._stage("digest", send, default=DigestOutcome("preview", "08:30", "2026-11-08", 1, ["x"])),
+            releases=lambda now, send: self._stage("releases", send, default=DigestOutcome("preview", "10:00", "2026-11-08", 2, ["r"])),
         )
 
     @property
@@ -125,6 +127,80 @@ def test_failed_send_is_partial():
     fakes = Fakes(digest=DigestOutcome("failed", "08:30", "2026-11-08", 2, ["x"], "flood wait"))
     report = run_pass([domain()], OFF, fakes.boundaries(), NOW, send=True)
     assert report.status == "partial" and "flood wait" in report.errors[0]
+
+
+def test_releases_stage_skipped_when_flag_off():
+    fakes = Fakes()
+    report = run_pass([domain()], OFF, fakes.boundaries(), NOW, send=False)
+    assert "releases" not in fakes.names and report.releases is None and report.status == "ok"
+
+
+def test_releases_stage_runs_after_digest_when_on():
+    fakes = Fakes()
+    report = run_pass([domain()], REL, fakes.boundaries(), NOW, send=True)
+    assert fakes.names == ["collect", "digest", "releases"] and ("releases", True) in fakes.calls
+    assert report.releases is not None and report.releases.item_count == 2 and report.status == "ok"
+
+
+def test_releases_stage_without_boundary_is_skipped_even_when_on():
+    boundaries = Fakes().boundaries()
+    boundaries.releases = None
+    report = run_pass([domain()], REL, boundaries, NOW, send=False)
+    assert report.releases is None and report.status == "ok"
+
+
+@pytest.mark.parametrize(
+    "releases",
+    [
+        DigestOutcome("failed", "10:00", "2026-11-08", 2, ["r"], "flood wait"),
+        DigestOutcome("sent", "10:00", "2026-11-08", 2, ["r", "r2"], "part 2 failed"),
+        KeyError("boom"),
+    ],
+    ids=["failed", "late-part-failed", "raised"],
+)
+def test_releases_failure_makes_pass_partial_not_failed(releases):
+    fakes = Fakes(releases=releases)
+    report = run_pass([domain()], REL, fakes.boundaries(), NOW, send=True)
+    assert report.status == "partial" and fakes.names[-2:] == ["digest", "releases"]
+    assert any(e.startswith("releases") for e in report.errors)
+    assert report.digest is not None and report.digest.status == "preview"  # the digest is unaffected
+
+
+def test_releases_stage_counts_in_the_every_stage_failed_rule():
+    fakes = Fakes(collect=KeyError("c"), digest=KeyError("d"), releases=KeyError("r"))
+    assert run_pass([domain()], REL, fakes.boundaries(), NOW, send=False).status == "failed"
+    ok = Fakes(digest=KeyError("d"))
+    assert run_pass([domain()], REL, ok.boundaries(), NOW, send=False).status == "partial"
+
+
+def test_report_dict_has_releases_key():
+    off = pipeline.report_dict(run_pass([domain()], OFF, Fakes().boundaries(), NOW, send=False), full=True)
+    assert "releases" in off and off["releases"] is None
+    report = run_pass([domain()], REL, Fakes().boundaries(), NOW, send=False)
+    full = pipeline.report_dict(report, full=True)
+    assert full["releases"]["status"] == "preview" and full["releases"]["parts"] == ["r"]
+    assert "parts" not in pipeline.report_dict(report, full=False)["releases"]
+
+
+def test_real_releases_stage_runs_on_a_migrated_db(tmp_path, monkeypatch):
+    conn = connect(tmp_path / "t.db")
+    migrate(conn)
+    b = pipeline.build_boundaries(conn, REL, [domain()])
+    assert b.releases is not None
+    out = b.releases(NOW, False)
+    assert out.status in {"not_due", "empty", "preview"}
+    monkeypatch.setattr(pipeline.digest_cli, "make_sender", lambda cfg: pytest.fail("no sender for a preview"))
+    b.releases(NOW, False)
+    b.close()
+
+
+def test_run_text_has_releases_line(home, monkeypatch, capsys):
+    write_domain(home)
+    (home / ".config.yaml").write_text("digest:\n  releases_message: true\n")
+    patch_boundaries(monkeypatch, Fakes())
+    assert main(["run"]) == 0
+    out = capsys.readouterr().out
+    assert "releases " in out and "--- releases message 1/1 (preview) ---" in out
 
 
 def test_explain_mentions_disabled_triage():

@@ -59,7 +59,21 @@ def _digest_line(report: PassReport) -> str:
     }[d.status]
 
 
-def _text(run_id: int, report: PassReport, hints: list[str], seconds: float) -> str:
+def _releases_line(report: PassReport) -> str:
+    r = report.releases
+    if r is None:
+        return "releases not built (stage failed)"
+    where = f"slot {r.slot} {r.local_date}"
+    return {
+        "not_due": "releases no slot due",
+        "empty": f"releases {where}: nothing to send" if report.send else f"releases {where}: nothing pending",
+        "preview": f"releases {where}: preview of {r.item_count} item(s) in {len(r.parts)} message(s), not sent",
+        "sent": f"releases {where}: sent {r.item_count} item(s) in {len(r.parts)} message(s)",
+        "failed": f"releases {where}: send failed, slot stays open for the next run",
+    }[r.status]
+
+
+def _text(run_id: int, report: PassReport, hints: list[str], seconds: float, releases_on: bool = False) -> str:
     lines = [f"run #{run_id}: {report.status} in {seconds:.0f}s"]
     if report.collect is not None:
         lines += [f"collect  {domain_line(r)}" for r in report.collect.domains] or ["collect  nothing due"]
@@ -69,12 +83,18 @@ def _text(run_id: int, report: PassReport, hints: list[str], seconds: float) -> 
     ]
     lines += [f"embed    {d}: pending {s.pending}, embedded {s.embedded}" for d, s in report.embed.items()]
     lines.append(_digest_line(report))
+    if releases_on:
+        lines.append(_releases_line(report))
     lines += ["errors:", *(f"  - {e}" for e in report.errors)] if report.errors else []
     lines += ["hints:", *(f"  - {h}" for h in hints)] if hints else []
     d = report.digest
     if d is not None and d.status == "preview":
         for i, part in enumerate(d.parts, 1):
             lines += [f"--- digest message {i}/{len(d.parts)} (preview) ---", part]
+    r = report.releases
+    if r is not None and r.status == "preview":
+        for i, part in enumerate(r.parts, 1):
+            lines += [f"--- releases message {i}/{len(r.parts)} (preview) ---", part]
     return "\n".join(lines)
 
 
@@ -137,7 +157,7 @@ def _run_locked(args: argparse.Namespace, cfg, domains: list[Domain], now: datet
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             print(f"run #{run_id}: {report.status} in {seconds:.0f}s", file=sys.stderr)
         else:
-            print(_text(run_id, report, hints, seconds))
+            print(_text(run_id, report, hints, seconds, cfg.digest.releases_message))
         return 1 if report.status == "failed" else 0
     finally:
         if boundaries is not None:

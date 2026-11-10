@@ -1,4 +1,4 @@
-"""One `repka run` pass: collect -> triage -> embed -> digest, with every boundary injected (architecture § 5).
+"""One `repka run` pass: collect -> triage -> embed -> digest (-> releases message), with every boundary injected (architecture § 5).
 
 `run_pass` is pure orchestration. A stage that raises is logged and recorded in `errors`, and the pass goes on:
 the digest stage always runs, so a GitHub rate limit (RF1) or a crashed decider worker (RF7) never silences it.
@@ -20,6 +20,7 @@ from repka import collect_cli, config
 from repka.collect import CollectReport, collect_domains, due_domains, iso, next_due
 from repka.config import AppConfig
 from repka.digest import cli as digest_cli
+from repka.digest.releases import run_releases
 from repka.digest.run import DigestOutcome, run_digest
 from repka.domain.schema import Domain
 from repka.embed import cli as embed_cli
@@ -46,6 +47,7 @@ class Boundaries:
     embed: Callable[[Domain, datetime], EmbedStats]
     digest: Callable[[datetime, bool], DigestOutcome]
     close: Callable[[], None] = lambda: None  # releases whatever the real boundaries opened lazily
+    releases: Callable[[datetime, bool], DigestOutcome] | None = None  # the daily releases message
 
 
 @dataclass
@@ -55,6 +57,7 @@ class PassReport:
     triage: dict[str, TriageStats] = field(default_factory=dict)
     embed: dict[str, EmbedStats] = field(default_factory=dict)
     digest: DigestOutcome | None = None
+    releases: DigestOutcome | None = None
     errors: list[str] = field(default_factory=list)
     domains: list[str] = field(default_factory=list)  # enabled domains of this pass (for `explain`)
     send: bool = False
@@ -157,6 +160,20 @@ def run_pass(
     except Exception as exc:
         unexpected += not fail("digest", exc)
 
+    if cfg.digest.releases_message and b.releases is not None:  # its own message, after the digest; same failure rules
+        attempted += 1
+        say("releases: " + ("building and sending" if send else "building a preview (not sent)"))
+        try:
+            report.releases = b.releases(now, send)
+            if report.releases.status == "failed":
+                problems += 1
+                report.errors.append(f"releases: send failed: {printable(report.releases.error or 'unknown error')}")
+            elif report.releases.error:
+                problems += 1
+                report.errors.append(f"releases: {printable(report.releases.error)}")
+        except Exception as exc:
+            unexpected += not fail("releases", exc)
+
     if unexpected == attempted:
         report.status = "failed"
     elif problems:
@@ -184,6 +201,9 @@ def explain(report: PassReport, cfg: AppConfig) -> list[str]:
     d = report.digest
     if d is not None and d.status == "not_due":
         hints.append("no digest slot is due now (digest.slots), so no digest was built")
+    r = report.releases
+    if r is not None and r.status == "not_due":
+        hints.append("no releases slot is due now (digest.releases_slot), so no releases message was built")
     if not report.send:
         if not cfg.notify.enabled:
             hints.append("digest preview only: set notify.enabled and run.send (or pass --send) to deliver digests")
@@ -249,21 +269,29 @@ def build_boundaries(
         sender = digest_cli.make_sender(cfg) if send else None
         return run_digest(conn, [d for d in domains if d.enabled], cfg, sender, now, send)
 
+    def releases_stage(now: datetime, send: bool) -> DigestOutcome:
+        sender = digest_cli.make_sender(cfg) if send else None
+        return run_releases(conn, [d for d in domains if d.enabled], cfg, sender, now, send)
+
     def close() -> None:
         for key in ("client", "embedder"):
             if key in held:
                 held[key].close()
 
-    return Boundaries(collect, triage_stage, embed_stage, digest_stage, close)
+    return Boundaries(collect, triage_stage, embed_stage, digest_stage, close, releases_stage)
 
 
 def report_dict(report: PassReport, *, full: bool) -> dict[str, Any]:
     """JSON-ready view of a pass. `full=False` (the `runs.stats_json` row) leaves out digest text and decisions."""
-    digest = None
-    if report.digest is not None:
-        digest = dataclasses.asdict(report.digest)
+
+    def outcome(o: DigestOutcome | None) -> dict[str, Any] | None:
+        if o is None:
+            return None
+        d = dataclasses.asdict(o)
         if not full:
-            digest.pop("parts")
+            d.pop("parts")
+        return d
+
     return {
         "status": report.status,
         "send": report.send,
@@ -281,6 +309,7 @@ def report_dict(report: PassReport, *, full: bool) -> dict[str, Any]:
             k: {f: v for f, v in dataclasses.asdict(s).items() if f != "decisions"} for k, s in report.triage.items()
         },
         "embed": {k: dataclasses.asdict(s) for k, s in report.embed.items()},
-        "digest": digest,
+        "digest": outcome(report.digest),
+        "releases": outcome(report.releases),
         "errors": report.errors,
     }
