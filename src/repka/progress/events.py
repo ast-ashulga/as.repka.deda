@@ -35,6 +35,16 @@ class Sink(Protocol):
     def on_event(self, event: str, snapshot: dict[str, Any], payload: dict[str, Any]) -> None: ...
 
 
+def notify(callback: Callable[..., None] | None, *args: Any) -> None:
+    """Call an optional progress callback; whatever it does, a stage never fails because of it."""
+    if callback is None:
+        return
+    try:
+        callback(*args)
+    except Exception:
+        log.debug("progress callback failed", exc_info=True)
+
+
 class NullReporter:
     """Accepts every call and does nothing (tests, library use)."""
 

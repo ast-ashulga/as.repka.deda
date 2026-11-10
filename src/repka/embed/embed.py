@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from repka.embed.ollama import Embedder
+from repka.progress import notify
 from repka.store.repo import repos_for_domain
 from repka.store.vectors import embedding_hash, upsert_embedding
 from repka.textutil import printable, truncate
@@ -44,7 +46,12 @@ class EmbedStats:
 
 
 def embed_domain(
-    conn: sqlite3.Connection, domain_id: str, embedder: Embedder, batch: int, now: str
+    conn: sqlite3.Connection,
+    domain_id: str,
+    embedder: Embedder,
+    batch: int,
+    now: str,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> EmbedStats:
     """Embed accepted, active repos whose stored hash differs from their current text.
 
@@ -60,6 +67,7 @@ def embed_domain(
         if embedding_hash(conn, row["repo_id"], embedder.model) != digest:
             todo.append((row["repo_id"], text, digest))
     stats.pending = len(todo)
+    notify(on_progress, 0, stats.pending, "")
     for start in range(0, len(todo), batch):
         chunk = todo[start : start + batch]
         vectors = embedder.embed([text for _, text, _ in chunk])
@@ -67,4 +75,5 @@ def embed_domain(
             upsert_embedding(conn, repo_id, embedder.model, vector, digest, now)
         conn.commit()
         stats.embedded += len(chunk)
+        notify(on_progress, stats.embedded, stats.pending, "")
     return stats

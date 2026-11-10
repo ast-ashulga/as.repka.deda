@@ -27,6 +27,7 @@ import yaml
 from repka import config
 from repka.config import ConfigError
 from repka.models import TriageItem
+from repka.progress.active import owns_stderr, stderr_line
 
 QTYPES = ("noul", "choice", "score")
 GROUPINGS = ("joint", "single")
@@ -228,6 +229,15 @@ def _stderr_fd() -> Any:
         return subprocess.DEVNULL
 
 
+def _relay(output: str | bytes | None) -> None:
+    """Pass captured worker output on to whoever owns stderr, line by line."""
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    for line in (output or "").splitlines():
+        if line.strip():
+            stderr_line(line)
+
+
 def _read_out(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -264,12 +274,23 @@ def run_worker(
         ]  # fmt: skip
         # The worker runs third-party model code: no secrets in its environment, and a scratch cwd
         # (not the project root, which holds .env and the state database).
+        capture = owns_stderr()  # `live`/`jsonl` own stderr: the worker's lines are relayed, not written under them
         try:
-            rc = subprocess.run(
-                cmd, stdout=_stderr_fd(), cwd=tmp, env=config.worker_env(), timeout=timeout_s, check=False
-            ).returncode
+            if capture:
+                done = subprocess.run(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", cwd=tmp,
+                    env=config.worker_env(), timeout=timeout_s, check=False,
+                )  # fmt: skip
+                _relay(done.stdout)
+                rc = done.returncode
+            else:
+                rc = subprocess.run(
+                    cmd, stdout=_stderr_fd(), cwd=tmp, env=config.worker_env(), timeout=timeout_s, check=False
+                ).returncode
             problem = None if rc == 0 else f"exit code {rc}"
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            if capture:
+                _relay(exc.output)
             problem = f"timed out after {timeout_s} s"
         out = _read_out(out_path)
         if problem is None and out is None:
@@ -277,7 +298,7 @@ def run_worker(
         if problem and out is None:
             raise WorkerError(f"Worker for {spec.name} failed ({problem}); see its messages above.")
         if problem:  # workers save results as they go: keep what was done, the rest is reported per item
-            print(f"warning: worker for {spec.name} stopped early ({problem}); using its partial results.", file=sys.stderr)
+            stderr_line(f"warning: worker for {spec.name} stopped early ({problem}); using its partial results.", "WARNING")
         return out  # type: ignore[return-value]
 
 

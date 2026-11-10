@@ -22,6 +22,7 @@ from repka.config import ConfigError
 from repka.github.client import GitHubError, RateLimited
 from repka.domain.schema import Domain
 from repka.models import TriageItem
+from repka.progress import notify
 from repka.textutil import printable, truncate
 from repka.triage.deciders import DeciderBackend, QuestionSet, questions_hash
 
@@ -196,6 +197,7 @@ def triage_domain(
     readme_chars: int,
     now: str,
     limit: int | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> TriageStats:
     """Decide the pending repos of `domain` (at most `limit`), chunk by chunk.
 
@@ -209,10 +211,15 @@ def triage_domain(
     if limit is not None:
         pending = pending[:limit]
     stats = TriageStats(pending=len(pending))
+    total = len(pending)
+    notify(on_progress, 0, total, "")
     for start in range(0, len(pending), CHUNK):
         rows: dict[str, sqlite3.Row] = {}
         items: list[TriageItem] = []
-        for row in pending[start : start + CHUNK]:
+        chunk = pending[start : start + CHUNK]
+        chunk_done = min(start + CHUNK, total)
+        for fetched, row in enumerate(chunk, 1):
+            notify(on_progress, start, total, f"readme {fetched}/{len(chunk)}")
             excerpt = fresh_excerpt(row, now)
             if excerpt is None:
                 if stats.rate_limited:
@@ -234,7 +241,9 @@ def triage_domain(
             rows[_rid(item)] = row
         conn.commit()  # fetched READMEs are kept even if the worker fails below
         if not items:
+            notify(on_progress, chunk_done, total, "")
             continue
+        notify(on_progress, start, total, f"worker deciding {len(items)} repos")
         answers_by_rid, errors_by_rid = backend.decide(items, q)  # WorkerError propagates: nothing written yet
         for item in items:
             rid, row = _rid(item), rows[_rid(item)]
@@ -249,4 +258,5 @@ def triage_domain(
             stats.accepted += int(accepted)
             stats.decisions.append((row["full_name"], answers, accepted))
         conn.commit()
+        notify(on_progress, chunk_done, total, "")
     return stats

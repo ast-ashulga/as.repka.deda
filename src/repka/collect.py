@@ -28,6 +28,7 @@ from repka.domain.schema import Domain, profile_hash
 from repka.github.client import GitHubClient, GitHubError, RateLimited
 from repka.github.enrich import EnrichStats, enrich_repos
 from repka.github.search import QueryStats, collect_search
+from repka.progress import NullReporter, Reporter
 from repka.store import repo
 from repka.store.repo import DomainState
 
@@ -116,6 +117,7 @@ def _collect_one(
     prefix: str,
     search_total: QueryStats,
     key_files_by_domain: dict[str, tuple[str, ...]],
+    reporter: Reporter | None = None,
 ) -> DomainReport:
     state = repo.get_domain_state(conn, d.id)
     saved = repo.saved_window(conn, d.id)
@@ -134,8 +136,12 @@ def _collect_one(
         f"{len(queries)} queries, window {window.field}:{window.start}..{window.end}"
     )
 
+    rep = reporter or NullReporter()
+    rep.step(f"{d.id} search", "queries", len(queries))
+
     def on_query(index: int, count: int, query: Query, stats: QueryStats) -> None:
         search_total.add(stats)
+        rep.advance(index, count)
         say(
             f"{prefix}   query {index}/{count} done: {stats.hits} repos ({stats.new} new), "
             f"{stats.slices} slices, {stats.pages} requests{f', {stats.capped} capped' if stats.capped else ''}"
@@ -146,10 +152,16 @@ def _collect_one(
         client, conn, d, window, iso(now), limit, emit_new, per_page=cfg.github.per_page, progress=on_query
     )
     targets, accepted = _enrich_targets(conn, d.id)
+    rep.step(f"{d.id} enrich", "repos", len(targets))
     say(f"{prefix}   enriching {len(targets)} repos ({len(accepted & set(targets))} accepted get slow metrics)")
+
+    def on_enriched(done: int, total: int) -> None:
+        say(f"{prefix}   enriched {done}/{total}")
+        rep.advance(done, total)
+
     enrich = enrich_repos(
         client, conn, d.id, targets, d.key_files, now, cfg.collect, accepted, baseline=not emit_new,
-        progress=lambda done, total: say(f"{prefix}   enriched {done}/{total}"),
+        progress=on_enriched,
         key_files_by_domain=key_files_by_domain,
     )
 
@@ -189,6 +201,7 @@ def collect_domains(
     *,
     progress: Progress | None = None,
     all_domains: list[Domain] | None = None,
+    reporter: Reporter | None = None,
 ) -> CollectReport:
     """Search then enrich each domain (the caller decides which are due), using ONE `now` for the run.
 
@@ -208,7 +221,7 @@ def collect_domains(
             continue
         search_so_far = QueryStats()  # a rate limit interrupts a query; keep what earlier queries found
         try:
-            domain_report = _collect_one(client, conn, d, cfg, now, say, f"[{index}/{len(domains)}]", search_so_far, key_files_by_domain)
+            domain_report = _collect_one(client, conn, d, cfg, now, say, f"[{index}/{len(domains)}]", search_so_far, key_files_by_domain, reporter)
         except RateLimited as exc:
             _record_partial(conn, d, repo.get_domain_state(conn, d.id))
             report.rate_limited = True
