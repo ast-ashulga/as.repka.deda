@@ -298,6 +298,7 @@ Nothing is scheduled until you ask for it. `repka schedule install` writes a lau
 ```bash
 uv run repka schedule install --dry-run   # print the plist, change nothing
 uv run repka schedule install             # every hour (--interval 30m to change it); replaces an old agent
+uv run repka schedule install --at 22:00,09:00,12:00   # daily at these local times instead (exclusive with --interval)
 uv run repka schedule status
 uv run repka schedule uninstall
 ```

@@ -25,8 +25,9 @@ LABEL = "com.repka.run"
 Runner = Callable[[list[str]], subprocess.CompletedProcess]
 
 EPILOG = """\
-The agent runs `repka run` every INTERVAL (default 1h) with the repo as working directory. It does not run at
-login, and it sends digests only when notify.enabled and run.send are both true.
+The agent runs `repka run` every INTERVAL (default 1h), or, with --at, at the given local times every day
+(for example --at 22:00,09:00,12:00; a run missed while the Mac slept starts on wake). The repo is the working
+directory. It does not run at login, and it sends digests only when notify.enabled and run.send are both true.
 """
 
 
@@ -51,12 +52,34 @@ def launchd_env() -> dict[str, str]:
     return env
 
 
-def plist_xml(uv_path: str, root: Path, interval_s: int = 3600, env: dict[str, str] | None = None) -> str:
+def parse_times(text: str) -> list[tuple[int, int]]:
+    """`22:00,09:00` -> [(22, 0), (9, 0)]; strict HH:MM (24h), no duplicates. Raises ValueError."""
+    times: list[tuple[int, int]] = []
+    for part in text.split(","):
+        part = part.strip()
+        hh, sep, mm = part.partition(":")
+        if not sep or not (hh.isdigit() and mm.isdigit() and len(mm) == 2) or int(hh) > 23 or int(mm) > 59:
+            raise ValueError(f"bad time {part!r}: expected HH:MM (24h), comma separated")
+        t = (int(hh), int(mm))
+        if t in times:
+            raise ValueError(f"duplicate time {part!r}")
+        times.append(t)
+    return times
+
+
+def plist_xml(
+    uv_path: str,
+    root: Path,
+    interval_s: int = 3600,
+    env: dict[str, str] | None = None,
+    at: list[tuple[int, int]] | None = None,
+) -> str:
+    """`at` (local HH:MM list) replaces the fixed interval with StartCalendarInterval entries."""
     data = {
         "Label": LABEL,
         "ProgramArguments": [uv_path, "run", "--project", str(root), "repka", "run"],
         "WorkingDirectory": str(root),
-        "StartInterval": interval_s,
+        **({"StartCalendarInterval": [{"Hour": h, "Minute": m} for h, m in at]} if at else {"StartInterval": interval_s}),
         "RunAtLoad": False,
         "StandardOutPath": str(root / "logs" / "launchd.log"),
         "StandardErrorPath": str(root / "logs" / "launchd.log"),
@@ -91,6 +114,7 @@ def install(
     dry_run: bool = False,
     *,
     interval_s: int = 3600,
+    at: list[tuple[int, int]] | None = None,
     uv_path: str | None = None,
 ) -> str:
     """Write the plist and (re)load the agent. Returns the plist text for a dry run, else a one-line summary."""
@@ -99,7 +123,7 @@ def install(
     if not uv:
         raise ScheduleError("uv not found on PATH: install uv (https://docs.astral.sh/uv/) and retry")
     root = project_root()
-    xml = plist_xml(uv, root, interval_s, launchd_env())
+    xml = plist_xml(uv, root, interval_s, launchd_env(), at)
     if dry_run:
         return xml
     path = plist_path()
@@ -110,7 +134,8 @@ def install(
     result = run(["bootstrap", _domain(), str(path)])
     if result.returncode != 0:
         raise ScheduleError(f"launchctl bootstrap failed: {(result.stderr or '').strip() or result.returncode}")
-    return f"installed {LABEL}: runs `repka run` every {interval_s}s ({path})"
+    when = "daily at " + ", ".join(f"{h:02d}:{m:02d}" for h, m in at) if at else f"every {interval_s}s"
+    return f"installed {LABEL}: runs `repka run` {when} ({path})"
 
 
 def uninstall(run_cmd: Runner | None = None) -> str:
@@ -145,9 +170,17 @@ def _cmd_install(args: argparse.Namespace) -> int:
             "(notify.enabled and run.send must both be true to send)",
             file=sys.stderr,
         )
-    interval_s = int(parse_duration(args.interval).total_seconds())
+    if args.at and args.interval:
+        print("error: --at and --interval are mutually exclusive", file=sys.stderr)
+        return 2
+    interval_s = int(parse_duration(args.interval or "1h").total_seconds())
     try:
-        print(install(dry_run=args.dry_run, interval_s=interval_s))
+        at = parse_times(args.at) if args.at else None
+    except ValueError as exc:
+        print(f"error: --at: {exc}", file=sys.stderr)
+        return 2
+    try:
+        print(install(dry_run=args.dry_run, interval_s=interval_s, at=at))
     except ScheduleError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -171,7 +204,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:
     schedule = sub.add_parser(
         "schedule",
-        help="manage the launchd agent that runs `repka run` hourly",
+        help="manage the launchd agent that runs `repka run` (hourly by default, or at fixed times)",
         description="Install, remove or inspect the launchd user agent. Only these commands change it.",
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -183,7 +216,13 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="write ~/Library/LaunchAgents/com.repka.run.plist and load it (replaces an old one)",
     )
     install_p.add_argument("--dry-run", action="store_true", help="print the plist and change nothing")
-    install_p.add_argument("--interval", default="1h", metavar="DURATION", help="run period, e.g. 30m or 1h (default 1h)")
+    install_p.add_argument("--interval", default=None, metavar="DURATION", help="run period, e.g. 30m or 1h (default 1h)")
+    install_p.add_argument(
+        "--at",
+        default=None,
+        metavar="HH:MM,...",
+        help="run daily at these local times instead of a fixed period, e.g. 22:00,09:00,12:00",
+    )
     install_p.set_defaults(func=_cmd_install)
 
     uninstall_p = actions.add_parser("uninstall", help="unload the agent and remove its plist (idempotent)")

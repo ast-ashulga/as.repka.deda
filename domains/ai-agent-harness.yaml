@@ -1,7 +1,7 @@
 id: ai-agent-harness
 name: "AI Agent Harness"
 enabled: true
-scan_every: 24h
+scan_every: 20h
 profile: |
   Agent harnesses: the runtime and scaffolding around an LLM agent that runs the
   tool loop, manages context and memory, sandboxes execution, enforces permissions,

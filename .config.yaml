@@ -32,7 +32,7 @@ embed:
   batch: 32
 
 digest:
-  slots: ["08:30"]             # local time
+  slots: ["09:00"]           # local time
   max_lateness: 6h             # a slot older than this is skipped, not sent late
   max_items_per_domain: 10
   new_max_age: 90d             # a first-seen repo created within this age is "new", older ones are "found"

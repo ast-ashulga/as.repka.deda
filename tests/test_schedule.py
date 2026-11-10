@@ -99,3 +99,30 @@ def test_bootstrap_failure_is_runtime_error(launchd):
     launchd.rc["bootstrap"] = 5
     with pytest.raises(schedule.ScheduleError):
         schedule.install()
+
+
+def test_parse_times():
+    assert schedule.parse_times("22:00, 09:30") == [(22, 0), (9, 30)]
+    for bad in ("", "9", "24:00", "09:60", "09:5", "aa:bb", "09:00,09:00"):
+        with pytest.raises(ValueError):
+            schedule.parse_times(bad)
+
+
+def test_plist_calendar_times_replace_interval(home):
+    data = plistlib.loads(schedule.plist_xml("/opt/uv/bin/uv", home, at=[(22, 0), (9, 0)]).encode())
+    assert data["StartCalendarInterval"] == [{"Hour": 22, "Minute": 0}, {"Hour": 9, "Minute": 0}]
+    assert "StartInterval" not in data
+    assert data["RunAtLoad"] is False
+
+
+def test_install_at_via_cli(launchd, capsys):
+    assert main(["schedule", "install", "--dry-run", "--at", "22:00,09:00,12:00"]) == 0
+    out = capsys.readouterr().out
+    assert [e["Hour"] for e in plistlib.loads(out.encode())["StartCalendarInterval"]] == [22, 9, 12]
+    assert launchd.calls == []
+
+
+def test_install_at_conflicts_with_interval_and_validates(launchd, capsys):
+    assert main(["schedule", "install", "--dry-run", "--at", "22:00", "--interval", "1h"]) == 2
+    assert main(["schedule", "install", "--dry-run", "--at", "25:00"]) == 2
+    assert launchd.calls == []

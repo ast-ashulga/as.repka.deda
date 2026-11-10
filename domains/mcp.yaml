@@ -1,7 +1,7 @@
 id: mcp
 name: "MCP servers & tooling "
 enabled: true
-scan_every: 12h
+scan_every: 20h
 profile: |
   Model Context Protocol (MCP) servers, clients, SDKs and gateways: code that
   exposes tools, resources or prompts to LLM applications over MCP, or that
