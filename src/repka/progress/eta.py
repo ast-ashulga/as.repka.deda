@@ -32,9 +32,10 @@ def fmt_duration(seconds: float) -> str:
 class RateEstimator:
     """Exponentially weighted throughput (items/s) over the intervals between `update` calls.
 
-    The first interval seeds the estimate with the cumulative rate; later ones blend in with EWMA_ALPHA, so a
-    slowdown is followed within a few samples. Coarse progress (one update per chunk) is fine: samples are
-    intervals, not items.
+    A sample is the interval between two `update` calls where `done` actually grew; a call that reports no new
+    progress (triage's per-README notifications) does not start a new interval, so time spent preparing a chunk
+    counts. The first sample seeds the estimate; later ones blend in with EWMA_ALPHA, so a slowdown is followed
+    within a few samples. Coarse progress (one update per chunk) is fine: samples are intervals, not items.
     """
 
     def __init__(self, clock: Callable[[], float]) -> None:
@@ -54,7 +55,7 @@ class RateEstimator:
         if done > self._last_done and now > self._last_t:
             sample = (done - self._last_done) / (now - self._last_t)
             self._rate = sample if self._rate is None else EWMA_ALPHA * sample + (1 - EWMA_ALPHA) * self._rate
-        if done >= self._last_done:
+        if done > self._last_done:
             self._last_done, self._last_t = done, now
 
     def elapsed(self) -> float:

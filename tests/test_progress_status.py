@@ -103,7 +103,7 @@ def write_file(home, **over):
     state.mkdir(exist_ok=True)
     now = time.time()
     data = {
-        "schema": 1, "pid": 4242, "run_id": 7, "mode": "lines", "status": "running",
+        "schema": 1, "pid": os.getpid(), "run_id": 7, "mode": "lines", "status": "running",
         "started_at": "2026-11-10T10:00:00+00:00", "started_epoch": now - 80, "updated_epoch": now - 3,
         "elapsed_s": 77.0, "stages": [{"name": "triage", "status": "running", "seconds": 77.0, "items": 0, "detail": ""}],
         "current": {"stage": "triage", "stage_index": 1, "stage_count": 2, "steps_done": 0, "steps_total": 1,
@@ -172,3 +172,60 @@ def test_status_cli_warns_on_stale_heartbeat(home, capsys):
 
 def test_status_module_is_registered():
     assert hasattr(status_cli, "register")
+
+
+def test_status_cli_other_command_holding_the_lock_is_busy_not_a_stuck_run(home, capsys):
+    state = write_file(home, status="ok", current=None, updated_epoch=time.time() - 5 * 3600)
+    with RunLock(state / "run.lock"):  # e.g. `repka collect` is running: it never writes progress.json
+        assert main(["status"]) == 0
+        out = capsys.readouterr().out
+        assert out.startswith("busy") and "another repka command" in out and "may be stuck" not in out
+        assert main(["status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["state"] == "busy"
+
+
+def test_status_cli_lock_held_but_file_belongs_to_a_dead_pid_is_busy(home, capsys):
+    state = write_file(home, pid=2_000_000_000)  # says running, but that process does not exist
+    with RunLock(state / "run.lock"):
+        assert main(["status"]) == 0
+    assert capsys.readouterr().out.startswith("busy")
+
+
+def test_stale_temp_files_are_removed_when_a_sink_starts(tmp_path):
+    leftover = tmp_path / "progress.json.tmp999999"
+    leftover.write_text("{")
+    StatusFileSink(tmp_path / "progress.json", 1, 1, "plain", Clock(), Clock())
+    assert not leftover.exists()
+
+
+def test_heartbeat_thread_refreshes_the_file_without_events(tmp_path):
+    import threading
+
+    wall = Clock(1_700_000_000.0)
+    path = tmp_path / "progress.json"
+    sink = StatusFileSink(path, 1, 1, "plain", Clock(), wall, heartbeat_thread=True, heartbeat_s=0.02)
+    p = RunProgress(clock=Clock(), wall=wall, sinks=[sink])
+    p.plan(["triage"])
+    p.stage_start("triage", steps=1)  # then a long silent worker call: no more events
+    first = read_status(path)["updated_epoch"]
+    wall.now += 60
+    deadline = time.monotonic() + 3
+    while read_status(path)["updated_epoch"] == first and time.monotonic() < deadline:
+        threading.Event().wait(0.02)
+    assert read_status(path)["updated_epoch"] > first
+    p.stage_end("ok")
+    p.finish("ok")
+    assert read_status(path)["status"] == "ok"
+    final = read_status(path)["updated_epoch"]
+    wall.now += 60
+    threading.Event().wait(0.1)
+    assert read_status(path)["updated_epoch"] == final  # the thread stopped with the run
+
+
+def test_status_cli_lock_held_without_any_snapshot_is_busy(home, capsys):
+    (home / ".state").mkdir()
+    with RunLock(home / ".state" / "run.lock"):
+        assert main(["status"]) == 0
+        assert capsys.readouterr().out.startswith("busy: another repka process holds the run lock")
+        assert main(["status", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["state"] == "busy"

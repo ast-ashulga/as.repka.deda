@@ -252,3 +252,30 @@ def test_logging_handler_routes_through_active_jsonl(home, capsys):
     assert objs[0]["level"] == "WARNING"
     err = capsys.readouterr().err
     assert "outside" in err and "worker hiccup" not in err
+
+
+def test_live_ticker_redraw_moves_elapsed_and_eta_between_events():
+    p, renderer, out, clock = build(live_renderer, history={"triage": 100.0})
+    p.plan(["triage"])
+    p.stage_start("triage", steps=1)
+    p.step("d", "repos", 100)
+    clock.now += 5
+    p.advance(10, 100)
+    first = out.getvalue().split("\r")[-1]
+    assert "| 5s |" in first
+    clock.now += 30  # a long chunk: no events, only the ticker redraws
+    renderer.redraw()
+    later = out.getvalue().split("\r")[-1]
+    assert "| 35s |" in later and later != first
+
+
+def test_live_finish_stops_the_ticker():
+    out, clock = io.StringIO(), Clock()
+    renderer = LiveRenderer(out, clock, lambda: WALL, columns=lambda: 100, unicode=True, ticker=True)
+    p = RunProgress(clock=clock, sinks=[renderer], wall=lambda: WALL)
+    p.plan(["digest"])
+    p.stage_start("digest")
+    assert renderer._ticker is not None
+    p.stage_end("ok")
+    p.finish("ok")
+    assert renderer._ticker is None

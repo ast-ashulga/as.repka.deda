@@ -186,3 +186,44 @@ def test_crash_in_jsonl_mode_still_prints_json_only(home, monkeypatch, capsys):
     for ln in stderr_lines(capsys):
         json.loads(ln)
     assert status_file(home)["status"] == "failed"
+
+
+def test_jsonl_lock_busy_message_is_json(home, monkeypatch, capsys):
+    from repka.runlock import RunLock
+
+    write_domain(home)
+    patch_boundaries(monkeypatch, Fakes(collect=AssertionError("must not run")))
+    with RunLock(home / ".state" / "run.lock"):
+        assert main(["run", "--progress", "jsonl"]) == 0
+    objs = [json.loads(ln) for ln in stderr_lines(capsys)]
+    assert [o["event"] for o in objs] == ["log"] and "another repka run is in progress" in objs[0]["message"]
+
+
+def test_jsonl_preflight_findings_and_config_errors_are_json(home, monkeypatch, capsys):
+    from repka import preflight
+
+    write_domain(home)
+    monkeypatch.setattr(preflight, "check", lambda *a, **k: [preflight.Finding("error", "no token", "set one")])
+    assert main(["run", "--progress", "jsonl"]) == 2
+    objs = [json.loads(ln) for ln in stderr_lines(capsys)]
+    assert all(o["event"] == "log" for o in objs)
+    text = " ".join(o["message"] for o in objs)
+    assert "no token" in text and "repka run did not start" in text
+    assert main(["run", "--progress", "jsonl", "--send"]) == 2  # notify.enabled is false: a ConfigError
+    objs = [json.loads(ln) for ln in stderr_lines(capsys)]
+    assert len(objs) == 1 and objs[0]["message"].startswith("error:") and "notify.enabled" in objs[0]["message"]
+
+
+def test_collect_batch_notes_are_dropped_but_other_collect_notes_stay():
+    seen = []
+    note = run_cli._without_batch_notes(seen.append)
+    note("[1/2]   query 2/3 done: 40 repos (5 new), 2 slices, 4 requests")
+    note("[1/2]   enriched 50/120")
+    note("[1/2] alpha: incremental scan, 4 queries, window created:2026-10-01..2026-11-08")
+    note("[1/2]   enriching 120 repos (3 accepted get slow metrics)")
+    note("collect: beta not due until 2026-11-09T08:00:00Z")
+    assert seen == [
+        "[1/2] alpha: incremental scan, 4 queries, window created:2026-10-01..2026-11-08",
+        "[1/2]   enriching 120 repos (3 accepted get slow metrics)",
+        "collect: beta not due until 2026-11-09T08:00:00Z",
+    ]

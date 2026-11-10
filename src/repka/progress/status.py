@@ -11,6 +11,7 @@ import fcntl
 import json
 import logging
 import os
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -51,8 +52,10 @@ def liveness(state_dir: Path) -> Literal["running", "idle"]:
 
 
 class StatusFileSink:
-    """A progress sink that keeps the snapshot file current: always on stage/step/finish events, and as a
-    heartbeat at most every HEARTBEAT_S on progress and note events."""
+    """A progress sink that keeps the snapshot file current: always on stage/step/finish events, as a heartbeat
+    at most every HEARTBEAT_S on progress and note events, and (with `heartbeat_thread`) by a daemon thread that
+    refreshes `updated_epoch` while no event arrives, e.g. during one long worker call, so `repka status` can tell
+    a quiet run from a stuck one."""
 
     def __init__(
         self,
@@ -62,27 +65,56 @@ class StatusFileSink:
         mode: str,
         clock: Callable[[], float] = time.monotonic,
         wall: Callable[[], float] = time.time,
+        heartbeat_thread: bool = False,
+        heartbeat_s: float = HEARTBEAT_S,
     ) -> None:
         self._path, self._pid, self._run_id, self._mode = Path(path), pid, run_id, mode
         self._clock, self._wall = clock, wall
         self._started_epoch = wall()
         self._last_write = float("-inf")
+        self._data: dict[str, Any] | None = None
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._want_thread, self._interval = heartbeat_thread, heartbeat_s
+        self._thread: threading.Thread | None = None
+        for stale in self._path.parent.glob(self._path.name + ".tmp*"):  # left by a process killed mid-write
+            try:
+                stale.unlink()
+            except OSError:
+                pass
 
     def on_event(self, event: str, snap: dict[str, Any], payload: dict[str, Any]) -> None:
         now = self._clock()
         if event in ("progress", "note") and now - self._last_write < HEARTBEAT_S:
             return
         self._last_write = now
-        data = {
-            "schema": SCHEMA,
-            "pid": self._pid,
-            "run_id": self._run_id,
-            "mode": self._mode,
-            "started_epoch": self._started_epoch,
-            "updated_epoch": self._wall(),
-            **snap,
-        }
+        with self._lock:
+            self._data = {
+                "schema": SCHEMA,
+                "pid": self._pid,
+                "run_id": self._run_id,
+                "mode": self._mode,
+                "started_epoch": self._started_epoch,
+                "updated_epoch": self._wall(),
+                **snap,
+            }
+            self._write()
+        if event == "finish":
+            self._stop.set()
+        elif self._want_thread and self._thread is None:
+            self._thread = threading.Thread(target=self._beat, name="repka-status-heartbeat", daemon=True)
+            self._thread.start()
+
+    def _write(self) -> None:
         try:
-            write_atomic(self._path, data)
+            write_atomic(self._path, self._data or {})
         except OSError:
             log.debug("could not write %s", self._path, exc_info=True)
+
+    def _beat(self) -> None:
+        while not self._stop.wait(self._interval):
+            with self._lock:
+                if self._stop.is_set() or self._data is None:
+                    return
+                self._data["updated_epoch"] = self._wall()
+                self._write()

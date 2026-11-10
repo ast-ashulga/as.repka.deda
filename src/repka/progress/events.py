@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
-from repka.progress.eta import RateEstimator
+from repka.progress.eta import MIN_ELAPSED_S, RateEstimator
 
 log = logging.getLogger("repka.progress")
 
@@ -235,17 +235,21 @@ class RunProgress:
         mean = sum(st.step_seconds) / len(st.step_seconds) if st.step_seconds else None
         if st.steps_total is not None:
             left_after = max(0, st.steps_total - len(st.step_seconds) - (1 if step else 0))
+            reliable = mean is not None and mean >= MIN_ELAPSED_S  # an empty first domain says nothing
             if step is None:  # between two steps
                 if mean is not None:
-                    return left_after * mean, True
+                    return left_after * mean, reliable
             elif in_step is not None:
                 if left_after == 0:
                     return in_step, True
                 if mean is not None:
-                    return in_step + left_after * mean, True
+                    return in_step + left_after * mean, reliable
         hist = self._history.get(st.name)  # a stage of unknown shape (or too early): fall back to history
         if hist is not None:
-            return max(hist - (now - (st.started or now)), in_step or 0.0), True
+            left = hist - (now - (st.started or now))
+            if left > 0:
+                return max(left, in_step or 0.0), True
+            return in_step or 0.0, False  # overran its history: only a lower bound is honest
         return in_step or 0.0, False
 
     def _overall(self, now: float) -> dict[str, Any]:

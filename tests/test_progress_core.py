@@ -221,3 +221,40 @@ def test_null_reporter_accepts_everything():
     r.stage_end("ok")
     r.note("n")
     r.finish("ok")
+
+
+def test_rate_ignores_notifications_that_did_not_advance():
+    """triage fires on_progress per README fetch with an unchanged `done`: that must not shrink the interval."""
+    clock = FakeClock()
+    est = RateEstimator(clock)
+    est.reset(200)
+    for _ in range(4):
+        clock.tick(25)
+        est.update(0)  # 100 s of README fetching, no unit finished
+    clock.tick(20)
+    est.update(200)  # the worker answered the whole chunk
+    assert est.rate() == pytest.approx(200 / 120)
+
+
+def test_stage_that_overruns_its_history_is_a_lower_bound_not_exact_zero():
+    p, clock = make(None, history={"collect": 40.0, "digest": 3.0})
+    p.plan(["collect", "digest"])
+    p.stage_start("collect")
+    clock.tick(100)  # a first scan far longer than the median run
+    overall = p.snapshot()["overall"]
+    assert overall["eta_is_lower_bound"] is True
+    assert overall["eta_seconds"] == pytest.approx(3.0)
+
+
+def test_remaining_steps_from_very_short_steps_are_a_lower_bound():
+    p, clock = make(None)
+    p.plan(["triage"])
+    p.stage_start("triage", steps=5)
+    p.step("empty-domain", "repos", 0)
+    clock.tick(0.2)
+    p.advance(0, 0)
+    p.step("next", "repos", 10)
+    clock.tick(5)
+    p.advance(5, 10)
+    overall = p.snapshot()["overall"]
+    assert overall["eta_is_lower_bound"] is True  # an empty first domain says nothing about the other three

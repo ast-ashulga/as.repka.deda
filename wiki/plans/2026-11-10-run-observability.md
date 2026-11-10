@@ -140,3 +140,9 @@
 - In `jsonl`, the run-level status is the field `run_status` (a stage's own `status` lives in `stage_end`); found by a test, not by review.
 - The ROADMAP task board is untouched: its rows are tied to GitHub issues and this feature has none.
 - Tasks were implemented natively in one session (not one subagent per task); the whole branch gets one fresh review (see the branch's final report).
+- Fixes after the fresh review (all with tests): `RateEstimator` ignores updates where `done` did not grow; the ETA is a
+  lower bound when a stage overruns its history or its finished steps are shorter than 3 s; the `live` redraw ages
+  elapsed and ETA between events and the ticker is joined outside the renderer lock; the status file gets a
+  heartbeat thread, stale `progress.json.tmp*` files are removed, and `repka status` reports a lock held by another
+  command as `busy`; preflight, lock-busy and early config errors are JSON in `jsonl`; the Telegram close warning
+  goes through `stderr_line`; collect's per-batch notes are filtered out of the note stream.

@@ -175,6 +175,7 @@ class LiveRenderer(_Base):
         enc = (getattr(stream, "encoding", None) or "").lower()
         self._unicode = ("utf" in enc) if unicode is None else unicode
         self._snap: dict[str, Any] | None = None
+        self._snap_at = 0.0  # clock reading when `_snap` was taken: redraws age elapsed and ETA by the difference
         self._drawn = False
         self._last_draw = float("-inf")
         self._ticker: threading.Thread | None = None
@@ -195,8 +196,16 @@ class LiveRenderer(_Base):
         if snap is None or snap["current"] is None:
             return ""
         cur = snap["current"]
-        text = f"{'>' if not self._unicode else '▶'} {self._bar(cur)}{status_line(snap)}"
+        text = f"{'>' if not self._unicode else '▶'} {self._bar(cur)}{status_line(self._aged(snap))}"
         return text[: max(10, self._columns() - 1)]
+
+    def _aged(self, snap: dict[str, Any]) -> dict[str, Any]:
+        """The snapshot as of now: between events nothing recomputes it, so elapsed grows and the ETA shrinks here."""
+        gap = max(0.0, self._clock() - self._snap_at)
+        overall = dict(snap["overall"])
+        if overall.get("eta_seconds") is not None:
+            overall["eta_seconds"] = max(0.0, overall["eta_seconds"] - gap)
+        return {**snap, "elapsed_s": snap["elapsed_s"] + gap, "overall": overall}
 
     def redraw(self) -> None:
         with self._lock:
@@ -227,24 +236,29 @@ class LiveRenderer(_Base):
 
     def on_event(self, event: str, snap: dict[str, Any], payload: dict[str, Any]) -> None:
         with self._lock:
-            self._snap = snap
-            if event == "stage_end":
-                st = next(s for s in snap["stages"] if s["name"] == payload["stage"])
-                mark = {"ok": "✓", "error": "✗", "skipped": "-"}[payload["status"]] if self._unicode else payload["status"]
-                detail = f" ({_clean(payload['detail'])})" if payload.get("detail") else ""
-                self._permanent(f"{mark} {st['name']} {fmt_duration(st['seconds'])}{detail}")
-                self.redraw()
-            elif event == "note":
-                self.log_line(payload["message"])
-            elif event == "finish":
-                self.stop()
-                self._snap = None
-                self._erase()
-                self._write(f"run {payload['status']} in {fmt_duration(snap['elapsed_s'])}\n")
-            elif event in ("stage_start", "step") or self._clock() - self._last_draw >= self.REDRAW_S:
-                self.redraw()
-            if event == "stage_start" and self._want_ticker:
-                self.start_ticker()
+            self._on_event(event, snap, payload)
+        if event == "finish":
+            self._join_ticker()  # outside the lock: the ticker may be waiting for it inside redraw()
+
+    def _on_event(self, event: str, snap: dict[str, Any], payload: dict[str, Any]) -> None:
+        self._snap, self._snap_at = snap, self._clock()
+        if event == "stage_end":
+            st = next(s for s in snap["stages"] if s["name"] == payload["stage"])
+            mark = {"ok": "✓", "error": "✗", "skipped": "-"}[payload["status"]] if self._unicode else payload["status"]
+            detail = f" ({_clean(payload['detail'])})" if payload.get("detail") else ""
+            self._permanent(f"{mark} {st['name']} {fmt_duration(st['seconds'])}{detail}")
+            self.redraw()
+        elif event == "note":
+            self.log_line(payload["message"])
+        elif event == "finish":
+            self._stop.set()
+            self._snap = None
+            self._erase()
+            self._write(f"run {payload['status']} in {fmt_duration(snap['elapsed_s'])}\n")
+        elif event in ("stage_start", "step") or self._clock() - self._last_draw >= self.REDRAW_S:
+            self.redraw()
+        if event == "stage_start" and self._want_ticker:
+            self.start_ticker()
 
     # -- ticker: keeps elapsed moving between events ---------------------------------------------
 
@@ -263,11 +277,14 @@ class LiveRenderer(_Base):
         self._ticker = threading.Thread(target=run, name="repka-live-ticker", daemon=True)
         self._ticker.start()
 
-    def stop(self) -> None:
-        self._stop.set()
+    def _join_ticker(self) -> None:
         ticker, self._ticker = self._ticker, None
         if ticker is not None and ticker is not threading.current_thread():
             ticker.join(timeout=2)
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._join_ticker()
 
 
 def make_renderer(

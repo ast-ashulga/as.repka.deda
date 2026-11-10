@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import UTC, datetime
@@ -18,7 +19,7 @@ from repka.pipeline import PassReport
 from repka.progress import RunProgress
 from repka.progress.active import activate, stderr_line
 from repka.progress.eta import history_medians
-from repka.progress.render import MODES, make_renderer
+from repka.progress.render import MODES, JsonlRenderer, make_renderer
 from repka.progress.status import StatusFileSink
 from repka.runlock import LockBusy, RunLock
 from repka.store import repo
@@ -48,9 +49,23 @@ def _make_progress(conn, mode: str, run_id: int):
         "SELECT stats_json FROM runs WHERE kind = 'run' AND status IN ('ok', 'partial') ORDER BY id DESC LIMIT 20"
     ).fetchall()
     renderer = make_renderer(mode, sys.stderr, is_tty=sys.stderr.isatty(), clock=time.monotonic, wall=time.time)
-    status_file = StatusFileSink(state_dir() / "progress.json", os.getpid(), run_id, mode)
+    status_file = StatusFileSink(state_dir() / "progress.json", os.getpid(), run_id, mode, heartbeat_thread=True)
     sinks = [status_file] if renderer is None else [renderer, status_file]
     return RunProgress(history=history_medians(r["stats_json"] for r in rows), sinks=sinks), renderer
+
+
+# collect narrates every query and enrichment batch; the structured events already carry that (and are throttled)
+_BATCH_NOTE = re.compile(r"^\[\d+/\d+\]\s+(query \d+/\d+ done|enriched \d+/\d+)")
+
+
+def _without_batch_notes(note):
+    """Wrap a note callback so per-query and per-batch collect lines (covered by progress events) are dropped."""
+
+    def filtered(message: str) -> None:
+        if not _BATCH_NOTE.match(message):
+            note(message)
+
+    return filtered
 
 
 def _select(domain_id: str | None) -> list[Domain]:
@@ -119,6 +134,20 @@ def _text(run_id: int, report: PassReport, hints: list[str], seconds: float, rel
 
 def _run(args: argparse.Namespace) -> int:
     cfg = load_config()
+    mode = args.progress or cfg.run.progress
+    if mode != "jsonl":
+        return _run_checked(args, cfg)
+    # jsonl promises that every stderr line is JSON, also the ones before the run proper starts
+    early = JsonlRenderer(sys.stderr, time.monotonic, time.time)
+    with activate(early):
+        try:
+            return _run_checked(args, cfg)
+        except ConfigError as exc:
+            stderr_line(f"error: {exc}", "ERROR")
+            return 2
+
+
+def _run_checked(args: argparse.Namespace, cfg) -> int:
     if args.send and args.domain:
         raise ConfigError(
             "--send cannot be combined with --domain: a digest consumes the slot for ALL domains, "
@@ -133,16 +162,16 @@ def _run(args: argparse.Namespace) -> int:
     domains = _select(args.domain)
     findings = preflight.check(cfg, send=send)  # before the lock and before any search or database write
     if findings:
-        print(preflight.format_findings(findings), file=sys.stderr)
+        stderr_line(preflight.format_findings(findings))
     if any(f.level == "error" for f in findings):
-        print("error: repka run did not start: fix the errors above (all checks: uv run repka doctor)", file=sys.stderr)
+        stderr_line("error: repka run did not start: fix the errors above (all checks: uv run repka doctor)", "ERROR")
         return 2
     now = datetime.now(UTC).replace(microsecond=0)
     try:
         with RunLock(state_dir() / "run.lock"):
             return _run_locked(args, cfg, domains, now, send)
     except LockBusy as exc:
-        print(f"another repka run is in progress ({exc}); nothing done", file=sys.stderr)
+        stderr_line(f"another repka run is in progress ({exc}); nothing done")
         return 0
 
 
@@ -162,7 +191,7 @@ def _run_locked(args: argparse.Namespace, cfg, domains: list[Domain], now: datet
             stderr_line(f"run #{run_id}: {len(domains)} domain(s), send={'yes' if send else 'no'}")
             try:
                 boundaries = pipeline.build_boundaries(
-                    conn, cfg, domains, force=bool(args.domain), progress=legacy or progress.note, reporter=progress
+                    conn, cfg, domains, force=bool(args.domain), progress=legacy or _without_batch_notes(progress.note), reporter=progress
                 )
                 report = pipeline.run_pass(domains, cfg, boundaries, now, send, progress=legacy, reporter=progress)
             except BaseException as exc:  # run_pass catches stage errors; this is the net under it (also Ctrl-C):

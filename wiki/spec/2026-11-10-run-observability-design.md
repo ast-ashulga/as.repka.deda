@@ -79,7 +79,10 @@ Everything shown that came from outside (domain ids, repo names) goes through `t
 3. **CLI prints** during a run (header, lock busy, crash message, final summary line under `--json`) go through
    `progress.stderr_line()`, so in `jsonl` they are JSON too and in `live` they do not corrupt the status line.
 
-In `jsonl` mode every stderr line is valid JSON, without exception.
+In `jsonl` mode every stderr line of `repka run` is valid JSON, including preflight findings, the lock-busy message
+and a `ConfigError` raised after the mode is known (an error in loading `.config.yaml` itself happens before the
+mode exists and stays a plain `error:` line). Collect's per-query and per-batch note lines are not forwarded as
+notes (the progress events carry them, throttled).
 
 ### D5. ETA rules
 - In-step ETA appears only after `done > 0` and at least 3 s elapsed; rate is an EWMA (alpha 0.3) of recent
@@ -90,6 +93,9 @@ In `jsonl` mode every stderr line is valid JSON, without exception.
   Older runs without `timings` are ignored.
 - If any remaining part has no estimate the overall ETA is a **lower bound** (`eta >2m`); with nothing known it
   is `eta ?`. A finished-at wall-clock time is shown next to a known ETA. Elapsed is always shown.
+- A stage that overruns its history (`elapsed > median`) or whose finished steps were all shorter than 3 s (an empty
+  first domain) gives a lower bound, never an exact small number. A throughput sample is the interval between two
+  updates where `done` grew, so README fetching before a chunk counts toward that chunk's rate.
 - Rate-limit waits and worker model loads are not predictable: the ETA is "at the current pace", said so in docs.
 
 ### D6. Output formats
@@ -109,9 +115,11 @@ is still observable). Fields: `schema` (1), `pid`, `run_id`, `status` (`running|
 `started_at`, `updated_at` (heartbeat, refreshed at least every 5 s while work advances), `stages[]` (name,
 status, seconds, items), `current` {stage, step, unit, done, total, detail, rate, eta_seconds}, `overall`
 {eta_seconds, eta_is_lower_bound, eta_at}.
-`repka status [--json]`: the lock is the truth. It tries a non-blocking flock on `run.lock`: acquired means no run
+A daemon thread refreshes `updated_epoch` every 5 s even when no event arrives (one long worker call), so a quiet run
+is not mistaken for a stuck one. `repka status [--json]`: the lock is the truth. It tries a non-blocking flock on `run.lock`: acquired means no run
 is alive (file with `status: running` is reported as "not running; last run died at ..."), busy means a live run
-(snapshot shown, plus "no heartbeat for Ns, may be stuck" past 120 s). Exit 0 whenever the state can be
+(snapshot shown, plus "no heartbeat for Ns, may be stuck" past 120 s) **when the snapshot says `running` and its pid
+exists**; a held lock without that (`repka collect`, `triage`, `digest --send` take the same lock) is `busy`. Exit 0 whenever the state can be
 reported; 2 only on usage/config errors.
 
 ## Constraints carried from the project

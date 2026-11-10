@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from repka.notify import mcp_client
+from repka.progress.active import stderr_line
 
 
 @dataclass
@@ -97,7 +97,7 @@ class TelegramUserSender:
                 outcome.append(await deliver_parts(session, self._chat_id, parts, self._topic_id))
         except Exception as exc:  # noqa: BLE001 - incl. the ExceptionGroup anyio raises on close
             if outcome:  # delivery finished; only closing the session failed. Do not report sent parts as lost.
-                print(f"warning: closing the Telegram session failed: {type(exc).__name__}", file=sys.stderr)
+                stderr_line(f"warning: closing the Telegram session failed: {type(exc).__name__}", "WARNING")
                 return outcome[0]
             return SendResult(ok=False, error=f"{type(exc).__name__}: {exc}")
         return outcome[0]
