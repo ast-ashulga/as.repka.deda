@@ -44,7 +44,8 @@ class DigestSection:
     releases: list[DigestItem] = field(default_factory=list)  # "release"
     movers: list[DigestItem] = field(default_factory=list)  # "mover"
     stack_changes: list[DigestItem] = field(default_factory=list)  # "stack"
-    more: int = 0  # items dropped by max_items_per_domain
+    more: int = 0  # items not shown because of max_items_per_domain
+    more_by_kind: dict[str, int] = field(default_factory=dict)  # `more` split by line_kind
 
     @property
     def item_count(self) -> int:
@@ -58,6 +59,7 @@ class Digest:
     sections: list[DigestSection]
     shown_event_ids: list[int]
     consumed_event_ids: list[int]
+    insights: bool = False  # built with digest.insights on (the renderer picks the new format)
 
     @property
     def item_count(self) -> int:
@@ -92,6 +94,16 @@ def _num(answers: dict[str, Any], question: str, key: str) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
+def _kind_level(answers: dict[str, Any]) -> tuple[str | None, int | None]:
+    """(kind, level) from the `kind` and `substance` answers; None for anything malformed."""
+    kind = answers["kind"].get("pred") if isinstance(answers.get("kind"), dict) else None
+    level = answers["substance"].get("pred") if isinstance(answers.get("substance"), dict) else None
+    return (
+        kind if isinstance(kind, str) else None,
+        level if isinstance(level, int) and not isinstance(level, bool) else None,
+    )
+
+
 def _recent_movers(conn: sqlite3.Connection, now: datetime) -> set[int]:
     rows = conn.execute(
         """
@@ -124,7 +136,7 @@ def _domain_section(
     verdicts = _latest_verdicts(conn, domain.id)
     events = conn.execute(
         """
-        SELECT e.id, e.repo_id, e.kind, e.payload_json, r.full_name, r.html_url, r.description, r.created_at
+        SELECT e.id, e.repo_id, e.kind, e.payload_json, e.detected_at, r.full_name, r.html_url, r.description, r.created_at
         FROM events e JOIN repos r ON r.repo_id = e.repo_id
         WHERE e.digest_id IS NULL AND e.domain_id = ? ORDER BY e.id
         """,
@@ -137,13 +149,21 @@ def _domain_section(
         "release": {},
         "stack_changed": {},
     }
+    pending_cutoff = now - cfg.pending_max_age
     for ev in events:
+        if cfg.releases_message and ev["kind"] == "release":
+            continue  # owned by the releases message: not shown and not consumed here, rejected repos included
         verdict = verdicts.get(ev["repo_id"])
         if verdict is None:
             continue
         if not verdict[0] or ev["kind"] not in by_kind:  # rejected, or key_file_changed (shown via stack_changed)
             consumed.append(ev["id"])
             continue
+        if cfg.insights and ev["kind"] == "new_repo":
+            detected = _parse(ev["detected_at"])
+            if detected is not None and detected < pending_cutoff:  # waited too long: drop silently
+                consumed.append(ev["id"])
+                continue
         by_kind[ev["kind"]].setdefault(ev["repo_id"], []).append(ev)
 
     def answers(repo_id: int) -> dict[str, Any]:
@@ -157,13 +177,12 @@ def _domain_section(
         stars = _stars(conn, repo_id)
         created = _parse(ev["created_at"])
         is_new = created is not None and created >= cutoff
-        level = a.get("substance", {}).get("pred") if isinstance(a.get("substance"), dict) else None
-        kind = a.get("kind", {}).get("pred") if isinstance(a.get("kind"), dict) else None
+        kind, level = _kind_level(a)
         fields: dict[str, Any] = {
             "description": ev["description"],
             "stars": stars,
-            "kind": kind if isinstance(kind, str) else None,
-            "level": level if isinstance(level, int) and not isinstance(level, bool) else None,
+            "kind": kind,
+            "level": level,
         }
         if not is_new and created is not None:
             fields["since"] = created.year
@@ -242,12 +261,11 @@ def _domain_section(
             "stars": m.stars,
         }
         if cfg.insights:
-            kind = (a.get("kind") or {}).get("pred") if isinstance(a.get("kind"), dict) else None
-            level = (a.get("substance") or {}).get("pred") if isinstance(a.get("substance"), dict) else None
+            kind, level = _kind_level(a)
             mover_fields.update(
                 description=row["description"],
-                kind=kind if isinstance(kind, str) else None,
-                level=level if isinstance(level, int) and not isinstance(level, bool) else None,
+                kind=kind,
+                level=level,
                 facets=facet_tags(a, cfg.facet_min_p),
             )
         item = DigestItem(
@@ -263,12 +281,15 @@ def _domain_section(
 
     section = DigestSection(domain.id, domain.name)
     room = max(cfg.max_items_per_domain, 0)
-    for cands, target in (
-        (new_cands, section.new_repos),
-        (release_cands, section.releases),
-        (mover_cands, section.movers),
-        (stack_cands, section.stack_changes),
-    ):
+    new_group = (new_cands, section.new_repos)
+    release_group = (release_cands, section.releases)
+    mover_group = (mover_cands, section.movers)
+    stack_group = (stack_cands, section.stack_changes)
+    if cfg.insights:  # releases last, sharing the per-domain limit
+        groups = (new_group, mover_group, stack_group, release_group)
+    else:
+        groups = (new_group, release_group, mover_group, stack_group)
+    for cands, target in groups:
         for _key, item, ids in _sorted(cands):
             if room > 0:
                 room -= 1
@@ -276,7 +297,9 @@ def _domain_section(
                 shown.extend(ids)
             else:
                 section.more += 1
-                consumed.extend(ids)
+                section.more_by_kind[item.line_kind] = section.more_by_kind.get(item.line_kind, 0) + 1
+                if not (cfg.insights and target is section.new_repos):  # insights: new overflow stays pending
+                    consumed.extend(ids)
     return section if section.item_count else None
 
 
@@ -297,4 +320,4 @@ def build_digest(
         section = _domain_section(conn, domain, now, cfg, recent, shown, consumed)
         if section is not None:
             sections.append(section)
-    return Digest(slot, local_date, sections, shown, consumed)
+    return Digest(slot, local_date, sections, shown, consumed, cfg.insights)

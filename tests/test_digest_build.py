@@ -247,3 +247,156 @@ def test_mover_item_enriched_with_description_and_kind(conn):
     assert f["facets"] == [("self_modifies", 0.94)]
     assert f["stars_delta_1d"] == 100
     assert on[2].text_fields["facets"] == []
+
+
+def _seed_full_digest(conn):
+    """One of everything plus overflow, rejected and untriaged repos; returns named event ids."""
+    ev = {}
+    t_old = NOW - timedelta(days=2)
+    for r in range(1, 10):  # nine new/found repos
+        created = "2019-05-01T00:00:00Z" if r == 9 else "2026-10-01T00:00:00Z"
+        add_repo(conn, r, stars=100 * r, created=created, description=f"repo {r}")
+        add_verdict(conn, r, True, substance=1 + r % 4, relevant=0.5 + r / 20)
+        ev[f"new{r}"] = add_event(conn, r, "new_repo")
+    for r in (20, 21):
+        add_repo(conn, r, stars=1000 * (r - 19))
+        add_verdict(conn, r, True)
+        ev[f"rel{r}"] = add_event(conn, r, "release", {"tag": f"v{r}", "name": "n"})
+    add_repo(conn, 30, stars=500, taken_at=t_old)
+    add_snapshot(conn, 30, 650, NOW - timedelta(hours=1))
+    add_verdict(conn, 30, True)
+    add_repo(conn, 31, stars=50)
+    add_verdict(conn, 31, True)
+    ev["stack31"] = add_event(conn, 31, "stack_changed", {"path": "p.toml", "added": ["a"], "removed": ["b"]})
+    add_repo(conn, 40)
+    add_verdict(conn, 40, False)
+    ev["rej40"] = add_event(conn, 40, "new_repo")
+    ev["rejrel40"] = add_event(conn, 40, "release", {"tag": "v9"})
+    add_repo(conn, 41)
+    ev["untriaged41"] = add_event(conn, 41, "new_repo")
+    return ev
+
+
+# Captured from the code before the insights selection change (flags off must keep producing exactly this).
+FLAGS_OFF_SNAPSHOT = (
+    "<b>repka</b> · morning digest · 2026-11-07\n"
+    "\n"
+    "<b>MCP</b>\n"
+    '🆕 <a href="https://github.com/o/r7">o/r7</a> ★700 — repo 7 <i>tool · lvl 4</i>\n'
+    '🆕 <a href="https://github.com/o/r3">o/r3</a> ★300 — repo 3 <i>tool · lvl 4</i>\n'
+    '🆕 <a href="https://github.com/o/r6">o/r6</a> ★600 — repo 6 <i>tool · lvl 3</i>\n'
+    '🆕 <a href="https://github.com/o/r2">o/r2</a> ★200 — repo 2 <i>tool · lvl 3</i>\n'
+    '🔎 <a href="https://github.com/o/r9">o/r9</a> ★900 — repo 9 <i>tool · lvl 2 · since 2019</i>\n'
+    '🆕 <a href="https://github.com/o/r5">o/r5</a> ★500 — repo 5 <i>tool · lvl 2</i>\n'
+    '🆕 <a href="https://github.com/o/r1">o/r1</a> ★100 — repo 1 <i>tool · lvl 2</i>\n'
+    '🆕 <a href="https://github.com/o/r8">o/r8</a> ★800 — repo 8 <i>tool · lvl 1</i>\n'
+    '🆕 <a href="https://github.com/o/r4">o/r4</a> ★400 — repo 4 <i>tool · lvl 1</i>\n'
+    '🚀 <a href="https://github.com/o/r21">o/r21</a> <code>v21</code>\n'
+    "…and 3 more"
+)
+
+
+def test_flags_off_is_identical_to_before(conn):
+    from repka.digest.render import render_digest
+
+    ev = _seed_full_digest(conn)
+    d = build(conn, DigestConfig())
+    assert "\n".join(render_digest(d)) == FLAGS_OFF_SNAPSHOT
+    assert d.shown_event_ids == [ev[k] for k in ("new7", "new3", "new6", "new2", "new9", "new5", "new1", "new8", "new4", "rel21")]
+    # rejected repo events, the overflowed release and the overflowed stack change are consumed at once
+    assert d.consumed_event_ids == [ev["rej40"], ev["rejrel40"], ev["rel20"], ev["stack31"]]
+    assert ev["untriaged41"] not in d.shown_event_ids + d.consumed_event_ids
+    assert d.sections[0].more == 3
+
+
+def test_releases_message_on_leaves_release_events_alone(conn):
+    add_repo(conn, 1)
+    add_repo(conn, 2)
+    add_verdict(conn, 1, True)
+    add_verdict(conn, 2, False)
+    r1 = add_event(conn, 1, "release", {"tag": "v1"})
+    r2 = add_event(conn, 2, "release", {"tag": "v2"})
+    n1 = add_event(conn, 1, "new_repo")
+    d = build(conn, DigestConfig(releases_message=True))
+    assert [i.line_kind for i in items(d)] == ["new"]
+    assert [s.releases for s in d.sections] == [[]]
+    assert d.shown_event_ids == [n1]
+    assert r1 not in d.shown_event_ids + d.consumed_event_ids
+    assert r2 not in d.shown_event_ids + d.consumed_event_ids  # rejected repo too: the releases message owns them
+    # untouched when the flag is off
+    off = build(conn, DigestConfig())
+    assert r1 in off.shown_event_ids and r2 in off.consumed_event_ids
+
+
+def _three_new(conn):
+    ids = []
+    for r in (1, 2, 3):
+        add_repo(conn, r, stars=100 * r)
+        add_verdict(conn, r, True, substance=5 - r)  # 1 first, then 2, then 3
+        ids.append(add_event(conn, r, "new_repo"))
+    return ids
+
+
+def test_insights_overflow_stays_pending(conn):
+    e1, e2, e3 = _three_new(conn)
+    d = build(conn, DigestConfig(max_items_per_domain=2, insights=True))
+    [section] = d.sections
+    assert [i.repo_id for i in section.new_repos] == [1, 2]
+    assert d.shown_event_ids == [e1, e2]
+    assert section.more == 1 and section.more_by_kind == {"new": 1}
+    assert e3 not in d.consumed_event_ids and e3 not in d.shown_event_ids
+    assert d.insights is True
+    off = build(conn, DigestConfig(max_items_per_domain=2))
+    assert off.consumed_event_ids == [e3]
+    assert off.insights is False
+    assert off.sections[0].more_by_kind == {"new": 1}
+
+
+def test_insights_overflow_stack_and_release_still_consumed(conn):
+    for r in (1, 2, 3):
+        add_repo(conn, r, stars=100 * r)
+        add_verdict(conn, r, True)
+    n = add_event(conn, 1, "new_repo")
+    s = add_event(conn, 2, "stack_changed", {"path": "p", "added": ["a"], "removed": []})
+    rel = add_event(conn, 3, "release", {"tag": "v1"})
+    d = build(conn, DigestConfig(max_items_per_domain=1, insights=True))
+    assert d.shown_event_ids == [n]
+    assert sorted(d.consumed_event_ids) == sorted([s, rel])
+    assert d.sections[0].more_by_kind == {"stack": 1, "release": 1}
+
+
+def test_insights_expires_old_pending_new_repos(conn):
+    add_repo(conn, 1)
+    add_repo(conn, 2)
+    add_verdict(conn, 1, True)
+    add_verdict(conn, 2, True)
+    old = add_event(conn, 1, "new_repo", at=NOW - timedelta(days=8))
+    fresh = add_event(conn, 2, "new_repo", at=NOW - timedelta(days=6))
+    d = build(conn, DigestConfig(insights=True, pending_max_age=timedelta(days=7)))
+    assert [i.repo_id for i in items(d)] == [2]
+    assert d.shown_event_ids == [fresh]
+    assert d.consumed_event_ids == [old]
+    # flag off: no expiry, the old event is shown as usual
+    off = build(conn, DigestConfig(pending_max_age=timedelta(days=7)))
+    assert sorted(off.shown_event_ids) == sorted([old, fresh])
+
+
+def test_insights_order_puts_releases_last(conn):
+    t_old = NOW - timedelta(days=2)
+    add_repo(conn, 1)
+    add_repo(conn, 2)
+    add_repo(conn, 3, stars=500, taken_at=t_old)
+    add_snapshot(conn, 3, 650, NOW - timedelta(hours=1))
+    add_repo(conn, 4)
+    for r in (1, 2, 3, 4):
+        add_verdict(conn, r, True)
+    add_event(conn, 1, "new_repo")
+    rel = add_event(conn, 2, "release", {"tag": "v1"})
+    st = add_event(conn, 4, "stack_changed", {"path": "p", "added": ["a"], "removed": []})
+    on = build(conn, DigestConfig(max_items_per_domain=3, insights=True))
+    assert [i.line_kind for i in items(on)] == ["new", "mover", "stack"]
+    assert on.sections[0].more_by_kind == {"release": 1}
+    assert rel in on.consumed_event_ids and st in on.shown_event_ids
+    off = build(conn, DigestConfig(max_items_per_domain=3))
+    assert [i.line_kind for i in items(off)] == ["new", "release", "mover"]
+    assert off.sections[0].more_by_kind == {"stack": 1}
