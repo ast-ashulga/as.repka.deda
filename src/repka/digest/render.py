@@ -18,6 +18,16 @@ MAX_DEPS_SHOWN = 5
 DEP_CHARS = 60
 PATH_CHARS = 80
 MAX_CHANGES_SHOWN = 3
+TAG_CHARS = 40  # insights: kind and facet labels
+
+# Insights legend and overflow counter, in display order: line_kind -> (icon, legend text).
+_LEGEND = {
+    "new": ("🆕", "new repo"),
+    "found": ("🔎", "newly found"),
+    "mover": ("📈", "star spike"),
+    "stack": ("🧩", "stack change"),
+    "release": ("🚀", "release"),
+}
 
 
 def slot_label(slot: str) -> str:
@@ -95,6 +105,48 @@ def _stack_line(item: DigestItem) -> str:
     return f"🧩 {_link(item)} {'; '.join(parts)}"
 
 
+def _insight_item(item: DigestItem) -> str:
+    """A 🆕/🔎/📈 item as ONE list element of up to three lines (split_messages never cuts an element)."""
+    f = item.text_fields
+    icon = {"new": "🆕", "found": "🔎", "mover": "📈"}[item.line_kind]
+    head = f"{icon} {_link(item)} ★{_stars(int(f.get('stars') or 0))}"
+    if item.line_kind == "mover":
+        head += f" <i>(+{int(f['stars_delta_1d'])}★/24h)</i>"
+    out = [head]
+    if f.get("description"):
+        out.append(f"<i>{_text(f['description'], DESC_CHARS)}</i>")
+    meta = []
+    if f.get("kind"):
+        meta.append(_text(f["kind"], TAG_CHARS))
+    if f.get("level") is not None:
+        meta.append(f"lvl {int(f['level'])}")
+    third = f"<code>{' · '.join(meta)}</code>" if meta else ""
+    for facet_id, _p in f.get("facets") or []:
+        label = _text(str(facet_id).replace("_", " "), TAG_CHARS)
+        if label:
+            third += f" · {label}" if third else label
+    if third:
+        out.append(third)
+    return "\n".join(out)
+
+
+def _insights_footer(d: Digest) -> list[str]:
+    present = {i.line_kind for s in d.sections for i in (*s.new_repos, *s.releases, *s.movers, *s.stack_changes)}
+    legend = [f"{icon} {text}" for kind, (icon, text) in _LEGEND.items() if kind in present]
+    legend.append(f"tags = decider answers (p ≥ {d.facet_min_p:.2f})")
+    out = ["", " · ".join(legend)]
+    by_kind: dict[str, int] = {}
+    total = 0
+    for s in d.sections:
+        total += sum(s.more_by_kind.values()) or s.more
+        for kind, n in s.more_by_kind.items():
+            by_kind[kind] = by_kind.get(kind, 0) + n
+    if total:
+        split = ", ".join(f"{by_kind[k]} {_LEGEND[k][0]}" for k in _LEGEND if by_kind.get(k))
+        out.append(f"…and {total} more{': ' + split if split else ''} (repka digest --more)")
+    return out
+
+
 def render_digest(d: Digest) -> list[str]:
     """Digest lines; empty when there is nothing to show."""
     if d.item_count == 0:
@@ -102,12 +154,20 @@ def render_digest(d: Digest) -> list[str]:
     lines = [f"<b>repka</b> · {slot_label(d.slot)} digest · {_text(d.local_date)}"]
     for s in d.sections:
         lines += ["", f"<b>{_text(s.domain_name)}</b>"]
+        if d.insights:
+            lines += [_insight_item(i) for i in s.new_repos]
+            lines += [_release_line(i) for i in s.releases]
+            lines += [_insight_item(i) for i in s.movers]
+            lines += [_stack_line(i) for i in s.stack_changes]
+            continue
         lines += [_repo_line(i) for i in s.new_repos]
         lines += [_release_line(i) for i in s.releases]
         lines += [_mover_line(i) for i in s.movers]
         lines += [_stack_line(i) for i in s.stack_changes]
         if s.more:
             lines.append(f"…and {s.more} more")
+    if d.insights:
+        lines += _insights_footer(d)
     return lines
 
 

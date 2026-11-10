@@ -60,6 +60,7 @@ class Digest:
     shown_event_ids: list[int]
     consumed_event_ids: list[int]
     insights: bool = False  # built with digest.insights on (the renderer picks the new format)
+    facet_min_p: float = 0.7  # decider-answer threshold behind the tags (shown in the legend)
 
     @property
     def item_count(self) -> int:
@@ -320,4 +321,4 @@ def build_digest(
         section = _domain_section(conn, domain, now, cfg, recent, shown, consumed)
         if section is not None:
             sections.append(section)
-    return Digest(slot, local_date, sections, shown, consumed, cfg.insights)
+    return Digest(slot, local_date, sections, shown, consumed, cfg.insights, cfg.facet_min_p)
