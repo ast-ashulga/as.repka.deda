@@ -23,7 +23,7 @@ triage:
   online: false                # allow HF downloads inside workers
   allow_remote: false          # permit remote decider backends (e.g. hosted Jev); never default
   readme_chars: 4000
-  thresholds: {relevant: 0.70, substance: 2}
+  thresholds: {relevant: 0.76, substance: 2}
 
 embed:
   enabled: true                # compute embeddings during `repka run`
@@ -39,7 +39,7 @@ digest:
   new_max_age: 90d             # a first-seen repo created within this age is "new", older ones are "found"
   star_spike_min_delta: 50     # stars_delta_1d threshold for the "top movers" digest section
   insights: false              # digest insights section; enable together with releases_message
-  releases_message: false      # separate releases message at releases_slot
+  releases_message: true       # separate releases message at releases_slot
   releases_slot: "09:00"       # local time HH:MM for the releases message
   facet_min_p: 0.7             # minimum probability (0 < p <= 1) for an insight facet to be shown
   pending_max_age: 7d          # a pending insight expires after this age
