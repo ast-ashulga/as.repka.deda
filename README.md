@@ -13,8 +13,8 @@ Local models decide what is relevant. Nothing leaves your Mac except GitHub API 
 [![Agent friendly](https://img.shields.io/badge/CLI-JSON%20output%20for%20agents-8A2BE2?style=flat-square)](#using-it-with-an-ai-agent)
 
 [Sample digest](#what-lands-in-your-telegram) ·
-[Try it](#try-it-in-5-minutes) ·
 [Use it with an AI agent](#using-it-with-an-ai-agent) ·
+[Try it](#try-it-in-5-minutes) ·
 [User guides](#user-guides) ·
 [Troubleshooting](docs/troubleshooting.md)
 
@@ -36,8 +36,12 @@ you one short digest: 🆕 new repos, 📈 star spikes, 🧩 stack changes and �
 
 ## What lands in your Telegram
 
-A digest adapted from a real run, shortened (domain: *AI Agent Harness*; the decider tags come from the domain's own
-questions):
+repka sends one short message per slot (08:30 and 19:30 by default; the header says *morning* before noon and
+*evening* after). It is grouped by **domain**, a technology area you defined, and lists only what changed since the
+last digest. An empty digest is never sent.
+
+This is the *insights* format (`digest.insights: true`; optional, off by default), adapted from a real run and
+shortened. Releases go in their own daily message (`digest.releases_message`), shown second:
 
 ```text
 repka · morning digest · 2026-11-13
@@ -58,8 +62,6 @@ AI Agent Harness
 …and 5 more: 5 🧩 (repka digest --more)
 ```
 
-Releases can go out as their own daily message (`digest.releases_message`):
-
 ```text
 repka · releases · 2026-11-13
 
@@ -69,6 +71,79 @@ AI Agent Harness · 62 releases
 …and 60 more
 Full list: repka releases --since 24h
 ```
+
+### How to read an item
+
+Every item has up to three lines. Here is one, annotated (the comments are not part of the message):
+
+```text
+📈 first-fluke/oh-my-agent ★1.4k (+64★/24h)    # what happened · repo · stars (and stars gained in the last 24 h)
+   Agent skills and specialist teams for…       # the repo's GitHub description, cut at 140 characters
+   framework · lvl 4 · subagents · sandbox      # kind · maturity level · domain tags
+```
+
+**The icon says what happened:**
+
+| Icon | Meaning | When it appears |
+|---|---|---|
+| 🆕 | New repo | First seen in this domain, and created within the last 90 days |
+| 🔎 | Found | First seen in this domain, but older than 90 days (it just entered your radar) |
+| 📈 | Star spike | Gained at least 50 stars in about 24 hours |
+| 🧩 | Stack change | A dependency was added or removed in a tracked manifest (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`); shown as `Cargo.toml +os_info −old_dep` |
+| 🚀 | Release | A new stable release (pre-releases are skipped); in the main digest, or in the releases message |
+
+The thresholds above are the defaults. The first scan of a domain is a silent baseline, so nothing is reported as new
+until a later scan.
+
+**The third line is what the local decider model concluded:**
+
+- **kind** is what sort of project it is: `tool`, `library`, `framework`, `protocol_spec`, `app_service`,
+  `model_or_dataset`, `awesome_list`, `tutorial_course`, `demo_example` or `other`. It is a label only.
+- **lvl N** is how substantial the repo looks, on a scale from 0 to 4: **0** empty or name-squat, **1** toy or
+  demo, **2** early but real code, **3** a working tool or library others can use, **4** mature, documented and
+  maintained. By default a repo reaches the digest only if it is judged relevant to the domain (probability ≥ 0.70)
+  and is at least `lvl 2`; both limits are in `triage.thresholds`.
+- **tags** (`subagents`, `sandbox`, ...) are answers to yes/no questions that the domain file itself defines under
+  `triage.questions`, so they differ from domain to domain (an MCP domain might ask `remote transport`, `gateway` or
+  `guardrails`). A tag is shown when the model's confidence is at least 0.70 (`digest.facet_min_p`), strongest first,
+  at most three. Tags never decide whether a repo is accepted; they tell you how an accepted repo differs from its
+  neighbours.
+
+**Order and limits.** Within a domain: new and found repos first (higher `lvl`, then relevance, then stars), then star
+spikes (biggest gain first), then stack changes, then releases. At most 10 items per domain are shown
+(`digest.max_items_per_domain`); the rest are counted in the footer and wait up to 7 days for `repka digest --more`.
+The footer line is a legend for the icons that appear in that digest.
+
+## Using it with an AI agent
+
+repka is built to be set up and operated by a coding agent as well as by a person. Every command an agent needs is
+non-interactive (except `domain new` and `notify login`), stdout carries results, stderr carries progress and
+`error: <message>`, and the exit code says what to do next: `0` ok, `1` runtime failure, `2` fixable usage or
+configuration error.
+
+**Paste this into Claude Code (or any coding agent) from the repo root:**
+
+```text
+Set up repka from https://github.com/ast-ashulga/as.repka.deda (clone it, then read CLAUDE.md and
+docs/agents.md). Run `uv sync`, then `uv run repka doctor --json` and apply the `fix` of every error.
+Use the domain-profile skill (.claude/skills/domain-profile/SKILL.md) to write one domains/<id>.yaml
+with me, then run `uv run repka run --json` and show me the digest preview. Never enable
+notify.enabled, run.send or `repka schedule install` yourself, and never read .env or .sessions/.
+```
+
+| An agent wants to | It runs | It gets |
+|---|---|---|
+| Learn what is missing | `uv run repka doctor --json` | `{ok, errors, warnings, checks[{id, status, title, fix}]}`; it runs the `fix` of each error |
+| Define a domain | the `domain-profile` skill, or `repka domain new --from-file brief.txt` | A validated `domains/<id>.yaml` (the skill may write only that file) |
+| Check a domain before scanning | `repka domain plan <id> --json` | The GitHub queries and the first-scan window |
+| Run a pass | `uv run repka run --json` | Stages, errors, hints and the digest text |
+| See what is waiting | `uv run repka digest --more`, `repka releases` | Items queued for a later digest, release events (read-only) |
+| Rehearse safely | `REPKA_HOME=/some/dir uv run repka ...` | A scratch home with its own config, `.env`, `domains/` and state |
+
+Hard limits for agents: they never turn on `notify.enabled`, `run.send` or `repka schedule install` on a person's
+behalf (a human decides those switches), never read `.env` or `.sessions/` (they hold secrets), and do not launch the
+dashboard unless asked (it is a long-running server). The full agent guide is **[docs/agents.md](docs/agents.md)**;
+developer conventions are in [CLAUDE.md](CLAUDE.md).
 
 ## Why repka
 
@@ -81,7 +156,7 @@ Full list: repka releases --since 24h
 - **You can see what it is doing.** `repka doctor` lists everything that is missing with the exact fix;
   `repka status` shows stage, progress and ETA of a running pass.
 - **Agent friendly.** `doctor --json` and `run --json` are stable interfaces, and a Claude skill writes domain files
-  for you (see [below](#using-it-with-an-ai-agent)).
+  for you (see [above](#using-it-with-an-ai-agent)).
 
 ```mermaid
 flowchart LR
@@ -110,36 +185,6 @@ uv run repka run             # one pass; prints the digest PREVIEW
 The first scan of a domain is a silent baseline, so the first preview is empty on purpose; later scans report what
 is new. Triage needs a local decider model (about 6 GB); `doctor` tells you the steps. Delivery to Telegram and
 scheduling come next in **[Getting started](docs/getting-started.md)**.
-
-## Using it with an AI agent
-
-repka is built to be set up and operated by a coding agent as well as by a person. Every command an agent needs is
-non-interactive (except `domain new` and `notify login`), stdout carries results, stderr carries progress and
-`error: <message>`, and the exit code says what to do next: `0` ok, `1` runtime failure, `2` fixable usage or
-configuration error.
-
-**Paste this into Claude Code (or any coding agent) from the repo root:**
-
-```text
-Set up repka in this checkout. Run `uv run repka doctor --json` and apply the `fix` of every error.
-Use the domain-profile skill to write one domains/<id>.yaml with me. Then run `uv run repka run --json`
-and show me the digest preview. Never enable notify.enabled, run.send or `repka schedule install`
-yourself, and never read .env or .sessions/.
-```
-
-| An agent wants to | It runs | It gets |
-|---|---|---|
-| Learn what is missing | `uv run repka doctor --json` | `{ok, errors, warnings, checks[{id, status, title, fix}]}`; it runs the `fix` of each error |
-| Define a domain | the `domain-profile` skill, or `repka domain new --from-file brief.txt` | A validated `domains/<id>.yaml` (the skill may write only that file) |
-| Check a domain before scanning | `repka domain plan <id> --json` | The GitHub queries and the first-scan window |
-| Run a pass | `uv run repka run --json` | Stages, errors, hints and the digest text |
-| See what is waiting | `uv run repka digest --more`, `repka releases` | Items queued for a later digest, release events (read-only) |
-| Rehearse safely | `REPKA_HOME=/some/dir uv run repka ...` | A scratch home with its own config, `.env`, `domains/` and state |
-
-Hard limits for agents: they never turn on `notify.enabled`, `run.send` or `repka schedule install` on a person's
-behalf (a human decides those switches), never read `.env` or `.sessions/` (they hold secrets), and do not launch the
-dashboard unless asked (it is a long-running server). The full agent guide is **[docs/agents.md](docs/agents.md)**;
-developer conventions are in [CLAUDE.md](CLAUDE.md).
 
 ## User guides
 
