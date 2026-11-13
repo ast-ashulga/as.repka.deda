@@ -1,14 +1,115 @@
+<div align="center">
+
 # repka deda
 
-repka deda watches GitHub for repositories in technology domains you define (for example "MCP servers"),
-decides locally which of them are relevant, and sends you a short Telegram digest at the times you set
-(`digest.slots`, by default 08:30 and 19:30): new repos, fresh releases, star movers and dependency changes. Optionally the digest shows what is
-different about each project (facet tags) and releases go in their own daily message. Everything except the
-GitHub API calls and the Telegram messages stays on your Mac.
+**A private GitHub radar. Tell it what you care about; it reads GitHub for you and sends a Telegram digest of what is new.**
 
-Pipeline: **collect** (GitHub search + GraphQL snapshots) -> **triage** (local decider model) ->
-**embed** (local Ollama, for "similar repos") -> **digest** (Telegram). `repka run` does one pass;
-launchd runs it hourly, or at fixed daily times if you prefer (see [Scheduling](#scheduling-launchd)). An optional local dashboard shows the same data in a browser.
+Local models decide what is relevant. Nothing leaves your Mac except GitHub API calls and the digest itself.
+
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://docs.astral.sh/uv/)
+[![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=flat-square&logo=apple&logoColor=white)](#requirements)
+[![Local first](https://img.shields.io/badge/local--first-no%20hosted%20models-2ea44f?style=flat-square)](#why-repka)
+[![Every flag off by default](https://img.shields.io/badge/feature%20flags-off%20by%20default-lightgrey?style=flat-square)](#configuration)
+
+[Sample digest](#what-lands-in-your-telegram) ·
+[Try it](#try-it-in-5-minutes) ·
+[Domains](#domains) ·
+[Configuration](#configuration) ·
+[For AI agents](#quick-start-ai-agents) ·
+[Troubleshooting](#troubleshooting)
+
+</div>
+
+---
+
+## ❌ Without repka
+
+- You skim trending pages, star lists and newsletters, and still miss the repo that mattered.
+- A GitHub search for "mcp server" returns over a thousand repositories per language. Most are noise.
+- Releases, star spikes and dependency changes of the projects you follow are scattered over a dozen places.
+
+## ✅ With repka
+
+You describe a technology area once (a **domain**, for example "AI agent harnesses" or "MCP servers"). Twice a day
+repka finds new and fast-growing repositories in it, lets a local decider model drop the irrelevant ones, and sends
+you one short digest: 🆕 new repos, 📈 star spikes, 🧩 stack changes and 🚀 releases.
+
+## What lands in your Telegram
+
+A digest adapted from a real run, shortened (domain: *AI Agent Harness*; the decider tags come from the domain's own questions):
+
+```text
+repka · morning digest · 2026-11-13
+
+AI Agent Harness
+🆕 ArtlexYoung/dsh-super-code ★35
+   A faster, more economical, more accurate DeepSeek harness plugin for coding…
+   library · lvl 4
+📈 ruvnet/ruflo ★81.6k (+74★/24h)
+   The original agent harness. Deploy intelligent multi-player swarms…
+   framework · lvl 4 · subagents
+📈 first-fluke/oh-my-agent ★1.4k (+64★/24h)
+   Agent skills and specialist teams for Claude Code, Codex, Cursor…
+   framework · lvl 4 · subagents · sandbox
+🧩 k4yt3x/meka Cargo.toml +os_info
+
+🆕 new repo · 📈 star spike · 🧩 stack change · tags = decider answers (p ≥ 0.70)
+…and 5 more: 5 🧩 (repka digest --more)
+```
+
+Releases can go out as their own daily message (`digest.releases_message`):
+
+```text
+repka · releases · 2026-11-13
+
+AI Agent Harness · 62 releases
+🚀 ruvnet/ruflo ★81.6k · v3.77.0
+🚀 langchain-ai/deepagents ★31.3k · deepagents==0.7.37
+…and 60 more
+Full list: repka releases --since 24h
+```
+
+## Why repka
+
+- **Local first.** Triage runs on a local model, embeddings on local Ollama. Only GitHub API calls and the Telegram
+  digest leave the machine.
+- **Safe by default.** Every feature flag is `false`. Nothing is sent and nothing is scheduled until you turn it on;
+  `repka run` prints a preview instead.
+- **It does not get in your way.** A failing stage never blocks the digest, a rate limit makes a run `partial` and the
+  next run continues, and an empty digest is never sent.
+- **You can see what it is doing.** `repka doctor` lists everything that is missing with the exact fix;
+  `repka status` shows stage, progress and ETA of a running pass.
+- **Agent friendly.** `doctor --json` and `run --json` are stable interfaces, and a Claude skill writes domain files
+  for you.
+
+```mermaid
+flowchart LR
+    GH[(GitHub<br/>search + GraphQL)] --> C[collect]
+    C --> T[triage<br/>local decider]
+    T --> E[embed<br/>local Ollama]
+    E --> D[digest]
+    D --> TG[/Telegram/]
+    DB[(SQLite<br/>.state/repka.db)] --- C
+    DB --- T
+    DB --- D
+```
+
+## Try it in 5 minutes
+
+Preview only: nothing is sent and nothing is scheduled.
+
+```bash
+uv sync                      # installs everything, fetches Python 3.12
+uv run repka doctor          # lists what is missing, each item with its exact fix
+uv run repka domain new      # describe what to watch; writes domains/<id>.yaml
+uv run repka run             # one pass; prints the digest PREVIEW
+```
+
+The first scan of a domain is a silent baseline, so the first preview is empty on purpose; later scans report what
+is new. Triage needs a local decider model (about 6 GB, see [Requirements](#requirements)); `doctor` tells you the
+steps. The full walkthrough, with delivery and scheduling, is [Quick start (humans)](#quick-start-humans) below.
+
+---
 
 ## Requirements
 
@@ -63,7 +164,7 @@ uv run repka schedule install        # hourly launchd agent (set notify.enabled 
                                      # or fixed daily times: --at 22:00,09:00
 ```
 
-Optional, once data is flowing: a browser view of the same data, see [Dashboard](#dashboard).
+Optional, once data is flowing: a browser view of the same data, see [Dashboard](#dashboard-optional).
 
 ## Quick start (AI agents)
 
