@@ -50,7 +50,7 @@ _NODE_FIELDS = """
         c30: history(since: $since30) { totalCount }
       } } }
       releases(first: 10, orderBy: {field: CREATED_AT, direction: DESC}) {
-        nodes { tagName name publishedAt createdAt url }
+        nodes { tagName name publishedAt createdAt url isPrerelease isDraft }
       }"""
 
 _BLOB_TEXT_QUERY = "query($ids: [ID!]!) { nodes(ids: $ids) { ... on Blob { text } } }"
@@ -91,11 +91,16 @@ def build_enrich_query(key_files: Sequence[str]) -> tuple[str, dict[str, str]]:
     return text, aliases
 
 
+def _latest_stable_release(releases: list[dict]) -> dict | None:
+    """Newest release that is neither a pre-release (nightly, canary, rc) nor a draft; nodes arrive newest first."""
+    return next((r for r in releases if not r.get("isPrerelease") and not r.get("isDraft")), None)
+
+
 def snapshot_from_node(node: dict, now: datetime, prev: Snapshot | None) -> Snapshot:
     target = (node.get("defaultBranchRef") or {}).get("target") or {}  # null for an empty repo
     releases = (node.get("releases") or {}).get("nodes") or []
     cutoff = now - RELEASE_WINDOW
-    latest = releases[0] if releases else None
+    latest = _latest_stable_release(releases)
     return Snapshot(
         repo_id=node["databaseId"],
         taken_at=now,
@@ -191,9 +196,13 @@ def _release_event(
     if prev is not None:
         if prev.latest_release_tag == tag:
             return None
+        # older than what was already seen (the latest used to be a pre-release): not news
+        if prev.latest_release_at and snap.latest_release_at and snap.latest_release_at <= prev.latest_release_at:
+            return None
     elif snap.latest_release_at is None or snap.latest_release_at < now - NEW_RELEASE_MAX_AGE:
         return None
-    latest = node["releases"]["nodes"][0]
+    latest = _latest_stable_release(node["releases"]["nodes"])
+    assert latest is not None  # snap.latest_release_tag came from it
     payload = {
         "tag": tag,
         "name": latest.get("name"),

@@ -87,7 +87,7 @@ First say which keys you are going to change and why, then edit only those keys 
 |---|---|---|
 | Digest at other times | `digest.slots: ["09:00", "18:00"]` (local time) | A slot is sent at most once; a slot older than `digest.max_lateness` is skipped |
 | Bigger/smaller digest | `digest.max_items_per_domain` | |
-| Fewer false positives / more recall | `triage.thresholds: {relevant: 0.70, substance: 2}` | Higher = stricter. Existing verdicts are kept; only new or changed repos use the new thresholds |
+| Fewer false positives / more recall | `triage.thresholds: {relevant: 0.70, substance: 2}` | Higher = stricter. The model's answers are stored and the next triage pass re-applies the current thresholds to all of them, so no re-scoring is needed. The relevance `p` comes in coarse steps (about 0.70, 0.73, 0.75, 0.78, 0.80, 0.82, 0.84), so a threshold between two steps drops or keeps a whole step (about 100 repos); check with `repka db stats`/a baseline before raising it |
 | Different Telegram target | `notify.chat_id` | Needs sending to be on to matter |
 | Change run period | `uv run repka schedule install --interval 30m`, or daily at fixed times `--at 22:00,09:00` | Replaces the old agent; needs a "yes" like a fresh install |
 | Watch a pass | `run.progress: live` (terminal) / `lines` (log files) / `jsonl` (scripts), or `uv run repka run --progress MODE`; `uv run repka status` from another terminal | Default is `plain`; display only, no consent needed |

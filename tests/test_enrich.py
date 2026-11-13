@@ -144,6 +144,49 @@ def test_release_event_on_new_tag(conn):
     assert len(events(conn)) == 1
 
 
+def _with_prerelease_on_top(base: int = 0) -> dict:
+    releases = copy.deepcopy(NODES[base]["releases"])
+    pre = {
+        "tagName": "v1.3.0-nightly.1",
+        "name": "nightly",
+        "publishedAt": "2026-11-06T10:00:00Z",
+        "createdAt": "2026-11-06T09:50:00Z",
+        "url": "https://github.com/octo/cat/releases/tag/v1.3.0-nightly.1",
+        "isPrerelease": True,
+        "isDraft": False,
+    }
+    releases["nodes"].insert(0, pre)
+    return releases
+
+
+def test_snapshot_latest_release_skips_prereleases_and_drafts():
+    releases = _with_prerelease_on_top()
+    releases["nodes"].insert(0, {**releases["nodes"][0], "tagName": "v9-draft", "isPrerelease": False, "isDraft": True})
+    s = snapshot_from_node(node(100, releases=releases), NOW, None)
+    assert s.latest_release_tag == "v1.2.0"
+    assert s.releases_90d == 4  # cadence still counts every release in the window
+    only_pre = {"nodes": [releases["nodes"][1]]}
+    s = snapshot_from_node(node(100, releases=only_pre), NOW, None)
+    assert s.latest_release_tag is None and s.latest_release_at is None
+
+
+def test_prerelease_emits_no_release_event_but_the_stable_one_does(conn):
+    add_repo(conn, 100)
+    repo.insert_snapshot(conn, old_snapshot(100, NOW - timedelta(days=1), tag="v1.1.0"))
+    client = FakeClient(node(100, releases=_with_prerelease_on_top()))
+    run(client, conn, [100])
+    assert [e[2]["tag"] for e in events(conn)] == ["v1.2.0"]  # not the nightly
+
+
+def test_no_release_event_when_stable_release_is_older_than_the_last_seen_prerelease(conn):
+    add_repo(conn, 100)
+    prev = old_snapshot(100, NOW - timedelta(days=1), tag="v1.3.0-nightly.0")  # recorded before the filter existed
+    repo.insert_snapshot(conn, Snapshot(**{**prev.__dict__, "latest_release_at": datetime(2026, 11, 6, 8, 0, tzinfo=UTC)}))
+    client = FakeClient(node(100, releases=_with_prerelease_on_top()))
+    run(client, conn, [100])
+    assert events(conn) == []  # v1.2.0 (11-05) predates what was already seen (11-06)
+
+
 def test_no_release_event_for_old_release_on_first_sighting(conn):
     add_repo(conn, 100)
     add_repo(conn, 300)

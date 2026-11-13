@@ -23,7 +23,7 @@ triage:
   online: false                # allow HF downloads inside workers
   allow_remote: false          # permit remote decider backends (e.g. hosted Jev); never default
   readme_chars: 4000
-  thresholds: {relevant: 0.79, substance: 2}
+  thresholds: {relevant: 0.76, substance: 2}
 
 embed:
   enabled: true                # compute embeddings during `repka run`
