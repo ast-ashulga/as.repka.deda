@@ -8,8 +8,9 @@ What it does (dry run unless --apply):
      kept, so digest history stays readable.
   3. Cached README bodies in `http_cache` are cut to `triage.readme_chars` (the ETag stays, so a 304
      still works).
-  4. Snapshots older than --snapshot-days (default 90) are thinned to the last one of each ISO week per
-     repo; newer snapshots and every repo's latest snapshot are never touched. 0 turns this off.
+  4. Snapshots older than --snapshot-days (default 90) are thinned to the last one of each calendar week per
+     repo (weeks start on Monday, as SQLite's %W counts them, and restart each January 1); newer snapshots
+     and every repo's latest snapshot are never touched. 0 turns this off.
   5. With --apply the file is VACUUMed so the space is returned to the disk.
 """
 
@@ -151,14 +152,18 @@ def _run(args: argparse.Namespace) -> int:
     print(f"  repos deleted (held by no domain, not in a digest): {report.repos_deleted}")
     print(f"  http_cache rows of those repos deleted: {report.cache_rows_deleted}")
     print(f"  cached README bodies cut to {cfg.triage.readme_chars} chars: {report.readme_bodies_cut}")
-    print(f"  snapshots older than {args.snapshot_days} days thinned to one per week: {report.snapshots_thinned}")
+    if args.snapshot_days:
+        print(f"  snapshots older than {args.snapshot_days} days thinned to one per week: {report.snapshots_thinned}")
+    else:
+        print("  snapshot thinning is off (--snapshot-days 0): every snapshot is kept")
     if args.apply:
         print(f"  file size: {before / 1048576:.1f} MB -> {path.stat().st_size / 1048576:.1f} MB")
     return 0
 
 
 def _command(args: argparse.Namespace) -> int:
-    return run_exclusive(lambda: _run(args), enabled=args.apply)
+    # A dry run takes the lock too: it opens a writable connection, may migrate and deletes before it rolls back.
+    return run_exclusive(lambda: _run(args))
 
 
 def register(db_sub: argparse._SubParsersAction) -> None:

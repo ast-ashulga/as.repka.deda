@@ -1,14 +1,14 @@
 # Spike T02: sqlite-vec under uv Python
 
-[← Wiki home](../README.md) · [Milestone M0](../plans/phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python) · [ADR-002](../spec/decisions.md#adr-002-sqlite--sqlite-vec-with-numpy-fallback)
+[← Wiki home](../README.md) · [ADR-002](../spec/decisions.md#adr-002-sqlite--sqlite-vec-with-numpy-fallback)
 
 ## Verdict
 
-**NO-GO for the `vec0` index. Use numpy brute-force cosine (ADR-002 fallback) for P1-T17.**
+**NO-GO for the `vec0` index. Use numpy brute-force cosine (ADR-002 fallback) for the vector store.**
 
 - The extension does load: `enable_load_extension` exists, `sqlite_vec.load()` succeeds, and KNN returns the correct nearest rowid. So the pinned library works under this interpreter.
-- Measured on this Mac, `vec0` is slower than numpy at every size tested (table below), and it returns the same top-10 as numpy. Its only advantage is that it avoids loading the matrix into memory, which the numpy path does once at startup in about 0.1 s for 50,000 vectors. At Phase 1 scale (a few thousand repos, 768-dim) the index buys nothing.
-- Revisit only if the embedding count grows past roughly 10^6 or the query path stops being brute-force friendly. The vec0 code path stays documented in the spike script (`scripts/spike_sqlite_vec.py`) and the test (`tests/test_sqlite_vec_available.py`) so the switch is cheap.
+- Measured on an Apple Silicon Mac, `vec0` is slower than numpy at every size tested (table below), and it returns the same top-10 as numpy. Its only advantage is that it avoids loading the matrix into memory, which the numpy path does once at startup in about 0.1 s for 50,000 vectors. At Phase 1 scale (a few thousand repos, 768-dim) the index buys nothing.
+- Revisit only if the embedding count grows past roughly 10^6 or the query path stops being brute-force friendly. The test (`tests/test_sqlite_vec_available.py`) keeps the vec0 path verified so the switch is cheap. The throwaway benchmark script used for the numbers below has been removed.
 
 ## Environment
 
@@ -19,7 +19,7 @@
 | SQLite library | 3.47.1 |
 | sqlite-vec | 0.1.9 (pinned `==0.1.9` in `pyproject.toml`; latest on PyPI when pinned, 2026-11-07) |
 | numpy | 2.5.4 |
-| Command | `uv run python scripts/spike_sqlite_vec.py` (defaults: n=5000, dim=768, 100 queries, k=10) |
+| Benchmark | throwaway script (since removed), defaults: n=5000, dim=768, 100 queries, k=10 |
 
 ## Test
 
@@ -38,7 +38,7 @@ Ratio at these sizes: vec0 is about 28x slower at 5k and 19x slower at 50k.
 
 Note on the first run: the spike initially used vec0's default L2 metric against a numpy cosine ranking. The top-10 overlap was then 0.35, which was a metric mismatch and not an index fault. The table above uses `distance_metric=cosine` on the vec0 table, which matches the numpy ranking exactly.
 
-## Recommendation for P1-T17
+## Recommendation for the vector store
 
 - Store vectors as float32 BLOBs in `embeddings` (the source of truth, unchanged).
 - Implement `store/vectors.py` as numpy brute-force cosine only. Do not create `vec0` tables by default.
@@ -48,4 +48,3 @@ Note on the first run: the spike initially used vec0's default L2 metric against
 ## Status of linked documents
 
 - [ADR-002](../spec/decisions.md#adr-002-sqlite--sqlite-vec-with-numpy-fallback): status line added, pointing here.
-- ROADMAP task board: verdict noted for P1-T02.

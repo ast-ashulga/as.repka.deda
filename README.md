@@ -4,7 +4,7 @@
 
 **A private GitHub radar. Tell it what you care about; it reads GitHub for you and sends a Telegram digest of what is new.**
 
-Local models decide what is relevant. Nothing leaves your Mac except GitHub API calls and the digest itself.
+Local models decide what is relevant. Your repository data never leaves your Mac except as GitHub API calls and the digest itself; the only other traffic is one-time model downloads.
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://docs.astral.sh/uv/)
 [![macOS Apple Silicon](https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=flat-square&logo=apple&logoColor=white)](docs/getting-started.md#requirements)
@@ -148,7 +148,8 @@ developer conventions are in [CLAUDE.md](CLAUDE.md).
 ## Why repka
 
 - **Local first.** Triage runs on a local model, embeddings on local Ollama. Only GitHub API calls and the Telegram
-  digest leave the machine.
+  digest leave the machine (model weights are downloaded once from Hugging Face, and `ollama pull` fetches the
+  embedding model).
 - **Safe by default.** Every feature flag is `false`. Nothing is sent and nothing is scheduled until you turn it on;
   `repka run` prints a preview instead.
 - **It does not get in your way.** A failing stage never blocks the digest, a rate limit makes a run `partial` and the
@@ -178,12 +179,14 @@ Preview only: nothing is sent and nothing is scheduled.
 git clone https://github.com/ast-ashulga/as.repka.deda.git && cd as.repka.deda
 uv sync                      # installs everything, fetches Python 3.12
 uv run repka doctor          # lists what is missing, each item with its exact fix
-uv run repka domain new      # describe what to watch; writes domains/<id>.yaml
+uv run repka domain new      # describe what to watch; writes domains/<id>.yaml (or copy one from domains/examples/)
 uv run repka run             # one pass; prints the digest PREVIEW
 ```
 
 The first scan of a domain is a silent baseline, so the first preview is empty on purpose; later scans report what
-is new. Triage needs a local decider model (about 6 GB); `doctor` tells you the steps. Delivery to Telegram and
+is new. Triage is off by default, so until you turn it on nothing is accepted and the digest stays empty: run
+`./deciders/setup.sh` and `./deciders/setup.sh --download d1-3B` (a one-time download of about 6 GB from Hugging Face),
+then set `triage.enabled: true` in `.config.yaml`. `doctor` names each missing step. Delivery to Telegram and
 scheduling come next in **[Getting started](docs/getting-started.md)**.
 
 ## User guides
@@ -197,12 +200,12 @@ scheduling come next in **[Getting started](docs/getting-started.md)**.
 | [Telegram delivery](docs/telegram.md) | Login, slots, the insights digest, the releases message |
 | [Scheduling](docs/scheduling.md) | The launchd agent: hourly or at fixed times |
 | [Keeping the database small](docs/database.md) | `repka db prune` and what it removes |
-| [Dashboard](docs/dashboard.md) | The local read-only Streamlit view |
+| [Dashboard](docs/dashboard.md) | The local Streamlit view (reads the database; two features write) |
 | [Using repka with AI agents](docs/agents.md) | Non-interactive interface and safety rules |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms, fixes, known limitations |
 | [Architecture](wiki/spec/architecture.md) | The full config key list and design; plan and tasks in [wiki/](wiki/README.md) |
 
 ## Contributing
 
-Developer and agent notes are in [CLAUDE.md](CLAUDE.md). `uv run pytest -q` (never touches the network) and
-`uv run ruff check src tests` must pass.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose a change; developer and agent notes are in
+[CLAUDE.md](CLAUDE.md). `uv run pytest -q` (never touches the network) and `uv run ruff check src tests` must pass.

@@ -5,7 +5,13 @@ import pytest
 
 from repka.cli import main
 from repka.config import ConfigError
-from repka.domain.schema import dump_domain, get_domain, load_domain, load_domains, save_domain
+from repka.domain.schema import (
+    dump_domain,
+    get_domain,
+    load_domain,
+    load_domains,
+    save_domain,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO / "domains" / "example-mcp.yaml"

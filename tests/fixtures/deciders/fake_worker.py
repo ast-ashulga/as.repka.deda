@@ -6,6 +6,7 @@ from a ModelSpec, so tests encode the mode in `repo`):
   crash_after_1 write out.json with one result, then exit 1
   sleep         sleep and write nothing (for timeout tests)
   bad_answer    answer the first request with a malformed answer, the rest normally
+  nan_answer    answer the first request with NaN probabilities (json.dumps writes them), the rest normally
 """
 
 from __future__ import annotations
@@ -61,7 +62,10 @@ def main() -> None:
         if mode == "bad_answer" and i == 0:
             results.append({"rid": req["rid"], "ms": 1.0, "answers": {}})
             continue
-        results.append({"rid": req["rid"], "ms": 1.0, "answers": answer(req["questions"])})
+        answers = answer(req["questions"])
+        if mode == "nan_answer" and i == 0:
+            answers["relevant"]["noul"] = float("nan")
+        results.append({"rid": req["rid"], "ms": 1.0, "answers": answers})
         if mode == "crash_after_1":
             save(results)
             sys.exit(1)

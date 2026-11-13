@@ -1,8 +1,10 @@
 # Research: Decider models for triage
 
-[← Wiki home](../README.md) · Related: [reference project](reference-tegerun.md) · [ADR-003/004](../spec/decisions.md) · [M3 Triage](../plans/phase-1/M3-triage.md)
+[← Wiki home](../README.md) · Related: [ADR-003/004](../spec/decisions.md)
 
-Status: researched 2026-11-07. Secondary sources about Jev/Clef disagree with each other on details. Everything marked **(unverified)** must be confirmed against the official model card in spike task [P1-T03](../plans/phase-1/M0-foundation.md#p1-t03-spike-local-decider-runs-on-this-mac).
+Note: "the reference project" in these notes is an earlier private prototype that ran the same decider kit. It is not published.
+
+Status: researched 2026-11-07. Secondary sources about Jev/Clef disagree with each other on details. Everything marked **(unverified)** must be confirmed against the official model card (see the [decider spike](../spikes/T03-deciders.md)).
 
 ## 1. What a "decider" is
 
@@ -20,7 +22,7 @@ This is exactly the triage the requirements ask for: "Is it relevant to our doma
 
 | Model | Kind | Local on Apple Silicon? | Status for this project |
 |---|---|---|---|
-| **LiquidAI d1-3B / d1-2B** | open weights, HF, `trust_remote_code`, transformers ≥ 5.19, runs on MPS (bf16) | **Yes — proven** in the reference project (`as.tegerun.cli`), revisions pinned | **Default backend.** ~6 GB / ~4 GB. `grouping: joint` (all questions in one pass). |
+| **LiquidAI d1-3B / d1-2B** | open weights, HF, `trust_remote_code`, transformers ≥ 5.19, runs on MPS (bf16) | **Yes — proven** in the reference project, revisions pinned | **Default backend.** ~6 GB / ~4 GB. `grouping: joint` (all questions in one pass). |
 | **perplexity pplx-decider-flash v1.2** | open weights, HF, own transformers version | **Yes — proven** in the reference project | Second backend. ~9 GB bf16 (fp32 ~18 GB). `grouping: single`. |
 | **Cloudflare Clef / Clef-flash** | open weights (Apache-2.0 per secondary sources); frozen Qwen backbone + ~256 MB trained head **(unverified)**; Clef-flash ≈ 9B **(unverified)** | Community MLX conversions exist (`mlx-community/clef-flash-8bit`, `aufklarer/Clef-flash-9B-MLX-4bit`, …), loaded via a bundled `clef_mlx.py`, not a chat model. 4-bit ≈ 6.2 GB, needs ≥ 16 GB RAM; 8-bit ≈ 10.7 GB, 24 GB recommended **(unverified)** | **Optional backend**, gated by a spike. Official repo id `Cloudflare/clef-flash` confirmed by [spike T03](../spikes/T03-deciders.md#clef-go-optional-backend) (Apache-2.0, Qwen3.5-9B base + joint schema head; MLX build runs, verdict GO). One source reports Clef-flash is much weaker on out-of-scope detection (CLINC150 OOS 66.8 vs 97.4 for Clef) — relevant for "is this junk?" questions. |
 | **TypeSafe Jev** | hosted API only, waitlist; same three question types | **No** (weights not public) | Conflicts with "local data". Treated as an **optional remote backend, off by default** (`triage.allow_remote: false`). Endpoint unverified: sources list `api.typesafe.ai/v1/systemone`, OpenRouter, AI/ML API. Not part of the Phase 1 critical path. |
@@ -83,4 +85,4 @@ Domains may add questions or override instructions in their domain file (`triage
 - [Towards AI: Clef vs Jev](https://pub.towardsai.net/what-is-clef-the-cloudflare-model-that-competes-with-jev-076995ab2bc7) (secondary)
 - MLX conversions: [mlx-community/clef-flash-8bit](https://huggingface.co/mlx-community/clef-flash-8bit), [aufklarer/Clef-flash-9B-MLX-4bit](https://huggingface.co/aufklarer/Clef-flash-9B-MLX-4bit), [FluidInference/clef-flash-coreml](https://huggingface.co/FluidInference/clef-flash-coreml)
 - Jev: [OpenRouter: What is Jev](https://openrouter.ai/blog/insights/what-is-jev/), [AI/ML API docs](https://docs.aimlapi.com/api-references/decision-models/typesafe/jev), [Braintrust: what is Jev](https://www.braintrust.dev/articles/what-is-jev) (secondary; endpoints disagree)
-- Reference implementation: `../as.tegerun.cli/classifier/` and `src/tegerun/classify.py` (local)
+- Reference implementation: an earlier private prototype (not published)

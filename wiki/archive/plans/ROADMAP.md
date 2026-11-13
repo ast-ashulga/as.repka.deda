@@ -1,16 +1,18 @@
 # repka: Implementation Roadmap
 
-[← Wiki home](../README.md) · [Agent guide](AGENT-GUIDE.md)
+[← Wiki home](../../README.md) · [Archive](../README.md) · [Agent guide](AGENT-GUIDE.md)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task by task. Read [AGENT-GUIDE.md](AGENT-GUIDE.md) first. **GitHub Issues are the only authoritative status tracker** (one issue per task, linked in the Task board below); this file keeps the static index, waves and dependencies.
+> **Archived.** This is the original implementation roadmap, kept for history and no longer maintained. The current design is in [architecture](../../spec/architecture.md).
+
+> **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task by task. Read [AGENT-GUIDE.md](AGENT-GUIDE.md) first. Status was tracked on per-task GitHub issues; this file keeps the static index, waves and dependencies.
 
 **Goal:** A local macOS CLI (`repka`) that monitors GitHub repositories in user-defined technology domains, triages them with local decider models, keeps metric history and embeddings in SQLite, and sends batched morning/evening Telegram digests. Phase 2 adds a Streamlit dashboard.
 
-**Architecture:** Hourly launchd pass → `repka run`: for each due domain, REST search with date bisection → batched GraphQL enrichment → decider worker subprocess triage → Ollama embeddings → SQLite. Digest slots decide when to build and send one Telegram message per slot. See [architecture](../spec/architecture.md).
+**Architecture:** Hourly launchd pass → `repka run`: for each due domain, REST search with date bisection → batched GraphQL enrichment → decider worker subprocess triage → Ollama embeddings → SQLite. Digest slots decide when to build and send one Telegram message per slot. See [architecture](../../spec/architecture.md).
 
 **Tech stack:** Python ≥ 3.12, uv, argparse, httpx, PyYAML, python-dotenv, SQLite + sqlite-vec (numpy fallback), local deciders (LiquidAI d1 via transformers/MPS; Clef via MLX optional), Ollama embeddings, Telegram user account via fast-mcp-telegram + mcp, launchd. Phase 2: Streamlit, Plotly, umap-learn, scikit-learn.
 
-**Spec:** [requirements](../spec/requirements.md) · [architecture](../spec/architecture.md) · [decisions](../spec/decisions.md)
+**Spec:** [requirements](../../spec/requirements.md) · [architecture](../../spec/architecture.md) · [decisions](../../spec/decisions.md)
 
 ## Global Constraints
 
@@ -62,39 +64,39 @@ Failure modes the requirements imply but are easy to miss. Each one has a pinnin
 
 ## Task board
 
-Status lives in the linked GitHub issue ([status mapping](AGENT-GUIDE.md#5-status-values)). Size: S ≈ < 300 LOC incl. tests, M ≈ 300–700, L ≈ > 700.
+(Historical: status was tracked on per-task GitHub issues, see [status mapping](AGENT-GUIDE.md#5-status-values).) Size: S ≈ < 300 LOC incl. tests, M ≈ 300–700, L ≈ > 700.
 
-| ID | Issue | Task | Wave | Depends on | Size | Notes |
-|---|---|---|---|---|---|---|
-| [P1-T01](phase-1/M0-foundation.md#p1-t01-project-scaffold-config-and-agent-guide) | [#1](https://github.com/ast-ashulga/as.repka.deda/issues/1) | Project scaffold, config, CLAUDE.md | 1 | — | M | |
-| [P1-T02](phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python) | [#2](https://github.com/ast-ashulga/as.repka.deda/issues/2) | Spike: sqlite-vec under uv Python | 2 | T01 | S | Verdict: NO-GO for vec0 (extension loads; numpy ~20-28x faster at 5k-50k). See [spike](../spikes/T02-sqlite-vec.md) |
-| [P1-T03](phase-1/M0-foundation.md#p1-t03-spike-local-decider-runs-on-this-mac) | [#3](https://github.com/ast-ashulga/as.repka.deda/issues/3) | Spike: local decider on this Mac | 2 | T01 | M | needs ~6 GB disk; human may need to run downloads. **Done 2026-11-07**: d1-3B default (d1-2B fallback), Clef: GO. See [spike](../spikes/T03-deciders.md) |
-| [P1-T04](phase-1/M0-foundation.md#p1-t04-spike-ollama-embedder-returns-vectors) | [#4](https://github.com/ast-ashulga/as.repka.deda/issues/4) | Spike: Ollama embedder | 2 | T01 | S | needs Ollama installed |
-| [P1-T05](phase-1/M1-domain-profile.md#p1-t05-domain-schema-loader-and-listshow) | [#5](https://github.com/ast-ashulga/as.repka.deda/issues/5) | Domain schema, loader, `domain list/show` | 2 | T01 | S | |
-| [P1-T06](phase-1/M1-domain-profile.md#p1-t06-query-matrix-and-domain-plan) | [#6](https://github.com/ast-ashulga/as.repka.deda/issues/6) | Query matrix, `domain plan` | 3 | T05 | M | |
-| [P1-T07](phase-1/M1-domain-profile.md#p1-t07-interactive-wizard-domain-new) | [#7](https://github.com/ast-ashulga/as.repka.deda/issues/7) | Wizard `domain new` | 4 | T06, T10 | M | |
-| [P1-T08](phase-1/M1-domain-profile.md#p1-t08-claude-code-skill-domain-profile) | [#8](https://github.com/ast-ashulga/as.repka.deda/issues/8) | Claude Code skill `domain-profile` | 4 | T06 | S | |
-| [P1-T09](phase-1/M2-collector.md#p1-t09-sqlite-store-migrations-and-repositories) | [#9](https://github.com/ast-ashulga/as.repka.deda/issues/9) | SQLite store, migrations, `db stats` | 2 | T01 | M | |
-| [P1-T10](phase-1/M2-collector.md#p1-t10-github-http-client) | [#10](https://github.com/ast-ashulga/as.repka.deda/issues/10) | GitHub HTTP client | 2 | T01 | M | |
-| [P1-T11](phase-1/M2-collector.md#p1-t11-search-with-pagination-and-date-bisection) | [#11](https://github.com/ast-ashulga/as.repka.deda/issues/11) | Search + pagination + bisection | 4 | T06, T09, T10 | M | |
-| [P1-T12](phase-1/M2-collector.md#p1-t12-enrichment-snapshots-key-files-stack-events) | [#12](https://github.com/ast-ashulga/as.repka.deda/issues/12) | Enrichment, snapshots, key files, events | 3 | T09, T10 | L | |
-| [P1-T13](phase-1/M2-collector.md#p1-t13-repka-collect-command) | [#13](https://github.com/ast-ashulga/as.repka.deda/issues/13) | `repka collect` | 5 | T11, T12 | S | |
-| [P1-T14](phase-1/M3-triage.md#p1-t14-port-the-decider-runtime) | [#14](https://github.com/ast-ashulga/as.repka.deda/issues/14) | Port decider runtime (`deciders/`) | 3 | T03 | M | |
-| [P1-T15](phase-1/M3-triage.md#p1-t15-repository-triage-and-repka-triage) | [#15](https://github.com/ast-ashulga/as.repka.deda/issues/15) | Repo triage + `repka triage` | 4 | T05, T09, T10, T14 | M | |
-| [P1-T16](phase-1/M3-triage.md#p1-t16-optional-clef-mlx-worker) | [#16](https://github.com/ast-ashulga/as.repka.deda/issues/16) | (Optional) Clef MLX worker | 4 | T14 | M | only if T03 Clef part = GO. **T03 verdict: GO** (`mlx-community/clef-flash-4bit`, ~1.7 s/item, 19/20 on the sample), see [spike](../spikes/T03-deciders.md#clef-go-optional-backend) |
-| [P1-T17](phase-1/M4-embeddings.md#p1-t17-vector-store-with-fallback) | [#17](https://github.com/ast-ashulga/as.repka.deda/issues/17) | Vector store with fallback | 3 | T02, T09 | S | |
-| [P1-T18](phase-1/M4-embeddings.md#p1-t18-ollama-embedder-repka-embed-and-repka-similar) | [#18](https://github.com/ast-ashulga/as.repka.deda/issues/18) | Ollama embedder, `embed`, `similar` | 5 | T04, T15, T17 | M | |
-| [P1-T19](phase-1/M5-digest.md#p1-t19-metrics-and-digest-builder) | [#19](https://github.com/ast-ashulga/as.repka.deda/issues/19) | Metrics + digest builder/renderer | 4 | T05, T12 | M | |
-| [P1-T20](phase-1/M5-digest.md#p1-t20-telegram-sender-user-account-via-fast-mcp-telegram) | [#20](https://github.com/ast-ashulga/as.repka.deda/issues/20) | Telegram user-account sender, `notify login/test` | 2 | T01 | M | |
-| [P1-T21](phase-1/M5-digest.md#p1-t21-digest-slots-and-repka-digest) | [#21](https://github.com/ast-ashulga/as.repka.deda/issues/21) | Slots + `repka digest` | 5 | T19, T20 | M | |
-| [P1-T22](phase-1/M6-orchestration.md#p1-t22-repka-run-pipeline) | [#22](https://github.com/ast-ashulga/as.repka.deda/issues/22) | `repka run` pipeline | 6 | T13, T15, T18, T21 | M | |
-| [P1-T23](phase-1/M6-orchestration.md#p1-t23-launchd-schedule) | [#23](https://github.com/ast-ashulga/as.repka.deda/issues/23) | launchd `schedule` | 7 | T22 | S | |
-| [P1-T24](phase-1/M6-orchestration.md#p1-t24-preflight-and-doctor) | [#24](https://github.com/ast-ashulga/as.repka.deda/issues/24) | Preflight + `doctor` | 7 | T22 | M | |
-| [P1-T25](phase-1/M6-orchestration.md#p1-t25-end-to-end-rehearsal-and-readme) | [#25](https://github.com/ast-ashulga/as.repka.deda/issues/25) | E2E rehearsal + README | 8 | T23, T24 | M | partly human (real tokens) |
-| [P2-T01](phase-2/M7-dashboard.md#p2-t01-dashboard-skeleton-and-data-layer) | [#26](https://github.com/ast-ashulga/as.repka.deda/issues/26) | Dashboard skeleton + data layer | 9 | G1 | M | |
-| [P2-T02](phase-2/M7-dashboard.md#p2-t02-domain-management-page) | [#27](https://github.com/ast-ashulga/as.repka.deda/issues/27) | Domain management page | 10 | P2-T01 | M | |
-| [P2-T03](phase-2/M7-dashboard.md#p2-t03-landscape-map) | [#28](https://github.com/ast-ashulga/as.repka.deda/issues/28) | Landscape map (UMAP + clusters) | 10 | P2-T01 | L | |
-| [P2-T04](phase-2/M7-dashboard.md#p2-t04-analytics-charts) | [#29](https://github.com/ast-ashulga/as.repka.deda/issues/29) | Analytics charts | 10 | P2-T01 | M | |
+| ID | Task | Wave | Depends on | Size | Notes |
+|---|---|---|---|---|---|
+| [P1-T01](phase-1/M0-foundation.md#p1-t01-project-scaffold-config-and-agent-guide) | Project scaffold, config, CLAUDE.md | 1 | — | M | |
+| [P1-T02](phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python) | Spike: sqlite-vec under uv Python | 2 | T01 | S | Verdict: NO-GO for vec0 (extension loads; numpy ~20-28x faster at 5k-50k). See [spike](../../spikes/T02-sqlite-vec.md) |
+| [P1-T03](phase-1/M0-foundation.md#p1-t03-spike-local-decider-runs-on-this-mac) | Spike: local decider on this Mac | 2 | T01 | M | needs ~6 GB disk; human may need to run downloads. **Done 2026-11-07**: d1-3B default (d1-2B fallback), Clef: GO. See [spike](../../spikes/T03-deciders.md) |
+| [P1-T04](phase-1/M0-foundation.md#p1-t04-spike-ollama-embedder-returns-vectors) | Spike: Ollama embedder | 2 | T01 | S | needs Ollama installed |
+| [P1-T05](phase-1/M1-domain-profile.md#p1-t05-domain-schema-loader-and-listshow) | Domain schema, loader, `domain list/show` | 2 | T01 | S | |
+| [P1-T06](phase-1/M1-domain-profile.md#p1-t06-query-matrix-and-domain-plan) | Query matrix, `domain plan` | 3 | T05 | M | |
+| [P1-T07](phase-1/M1-domain-profile.md#p1-t07-interactive-wizard-domain-new) | Wizard `domain new` | 4 | T06, T10 | M | |
+| [P1-T08](phase-1/M1-domain-profile.md#p1-t08-claude-code-skill-domain-profile) | Claude Code skill `domain-profile` | 4 | T06 | S | |
+| [P1-T09](phase-1/M2-collector.md#p1-t09-sqlite-store-migrations-and-repositories) | SQLite store, migrations, `db stats` | 2 | T01 | M | |
+| [P1-T10](phase-1/M2-collector.md#p1-t10-github-http-client) | GitHub HTTP client | 2 | T01 | M | |
+| [P1-T11](phase-1/M2-collector.md#p1-t11-search-with-pagination-and-date-bisection) | Search + pagination + bisection | 4 | T06, T09, T10 | M | |
+| [P1-T12](phase-1/M2-collector.md#p1-t12-enrichment-snapshots-key-files-stack-events) | Enrichment, snapshots, key files, events | 3 | T09, T10 | L | |
+| [P1-T13](phase-1/M2-collector.md#p1-t13-repka-collect-command) | `repka collect` | 5 | T11, T12 | S | |
+| [P1-T14](phase-1/M3-triage.md#p1-t14-port-the-decider-runtime) | Port decider runtime (`deciders/`) | 3 | T03 | M | |
+| [P1-T15](phase-1/M3-triage.md#p1-t15-repository-triage-and-repka-triage) | Repo triage + `repka triage` | 4 | T05, T09, T10, T14 | M | |
+| [P1-T16](phase-1/M3-triage.md#p1-t16-optional-clef-mlx-worker) | (Optional) Clef MLX worker | 4 | T14 | M | only if T03 Clef part = GO. **T03 verdict: GO** (`mlx-community/clef-flash-4bit`, ~1.7 s/item, 19/20 on the sample), see [spike](../../spikes/T03-deciders.md#clef-go-optional-backend) |
+| [P1-T17](phase-1/M4-embeddings.md#p1-t17-vector-store-with-fallback) | Vector store with fallback | 3 | T02, T09 | S | |
+| [P1-T18](phase-1/M4-embeddings.md#p1-t18-ollama-embedder-repka-embed-and-repka-similar) | Ollama embedder, `embed`, `similar` | 5 | T04, T15, T17 | M | |
+| [P1-T19](phase-1/M5-digest.md#p1-t19-metrics-and-digest-builder) | Metrics + digest builder/renderer | 4 | T05, T12 | M | |
+| [P1-T20](phase-1/M5-digest.md#p1-t20-telegram-sender-user-account-via-fast-mcp-telegram) | Telegram user-account sender, `notify login/test` | 2 | T01 | M | |
+| [P1-T21](phase-1/M5-digest.md#p1-t21-digest-slots-and-repka-digest) | Slots + `repka digest` | 5 | T19, T20 | M | |
+| [P1-T22](phase-1/M6-orchestration.md#p1-t22-repka-run-pipeline) | `repka run` pipeline | 6 | T13, T15, T18, T21 | M | |
+| [P1-T23](phase-1/M6-orchestration.md#p1-t23-launchd-schedule) | launchd `schedule` | 7 | T22 | S | |
+| [P1-T24](phase-1/M6-orchestration.md#p1-t24-preflight-and-doctor) | Preflight + `doctor` | 7 | T22 | M | |
+| [P1-T25](phase-1/M6-orchestration.md#p1-t25-end-to-end-rehearsal-and-readme) | E2E rehearsal + README | 8 | T23, T24 | M | partly human (real tokens) |
+| [P2-T01](phase-2/M7-dashboard.md#p2-t01-dashboard-skeleton-and-data-layer) | Dashboard skeleton + data layer | 9 | G1 | M | |
+| [P2-T02](phase-2/M7-dashboard.md#p2-t02-domain-management-page) | Domain management page | 10 | P2-T01 | M | |
+| [P2-T03](phase-2/M7-dashboard.md#p2-t03-landscape-map) | Landscape map (UMAP + clusters) | 10 | P2-T01 | L | |
+| [P2-T04](phase-2/M7-dashboard.md#p2-t04-analytics-charts) | Analytics charts | 10 | P2-T01 | M | |
 
 (Task IDs in "Depends on" omit the `P1-` prefix.)
 

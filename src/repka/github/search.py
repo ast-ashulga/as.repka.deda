@@ -1,9 +1,9 @@
 """Repository search: pagination, date bisection, resume.
 
 GitHub search returns at most 1,000 results per query, so a window is split by date until every slice
-reports `total_count <= 1000` (a 1-day slice that is still bigger is kept and flagged `capped`, RF2).
+reports `total_count <= 1000` (a 1-day slice that is still bigger is kept and flagged `capped`).
 Each finished slice is recorded in `search_cursor` and every page is committed, so a run stopped by
-`RateLimited` keeps its data and the next run skips what is done (RF1).
+`RateLimited` keeps its data and the next run skips what is done.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import logging
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from math import ceil
 from typing import Protocol
 
@@ -21,6 +21,7 @@ from repka.domain.schema import Domain
 from repka.github.client import SearchPage
 from repka.models import Event, RepoHit
 from repka.store import repo
+from repka.store.db import iso, parse_iso
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class Slice:
 class QueryStats:
     slices: int = 0  # leaf slices read to the end
     pages: int = 0  # search requests made (probes of bisected slices and retries included)
-    hits: int = 0  # items stored
+    hits: int = 0  # unique repos stored for this domain scan (counted against the budget)
     new: int = 0  # repos not seen in the store before
     capped: int = 0
     incomplete: int = 0
@@ -64,10 +65,6 @@ class QueryStats:
     def add(self, other: QueryStats) -> None:
         for name in ("slices", "pages", "hits", "new", "capped", "incomplete"):
             setattr(self, name, getattr(self, name) + getattr(other, name))
-
-
-def _dt(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def hit_from_item(item: dict) -> RepoHit:
@@ -84,8 +81,8 @@ def hit_from_item(item: dict) -> RepoHit:
         stars=int(item.get("stargazers_count", 0)),
         forks=int(item.get("forks_count", 0)),
         is_fork=bool(item.get("fork", False)),
-        created_at=_dt(item["created_at"]),
-        pushed_at=_dt(item["pushed_at"]),
+        created_at=parse_iso(item["created_at"]),
+        pushed_at=parse_iso(item["pushed_at"]),
         archived=bool(item.get("archived", False)),
         license=(lic.get("name") if spdx == "NOASSERTION" else spdx) or None,
     )
@@ -157,8 +154,8 @@ class _Collector:
                         repo_id=hit.repo_id,
                         domain_id=self.domain_id,
                         kind="new_repo",
-                        payload={"created_at": hit.created_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")},
-                        detected_at=_dt(self.now),
+                        payload={"created_at": iso(hit.created_at)},
+                        detected_at=parse_iso(self.now),
                     ),
                 )
             self.seen.add(hit.repo_id)
@@ -218,7 +215,7 @@ def collect_query(
     """Collect one query over the window. Returns the stats and the repo ids seen.
 
     `budget` is the number of unique repos still allowed for the domain scan (`seen` holds those already counted). `emit_new=False` is the silent
-    baseline of a domain's first scan (RF8). `RateLimited` propagates; finished pages are committed.
+    baseline of a domain's first scan. `RateLimited` propagates; finished pages are committed.
     """
     collector = _Collector(client, conn, domain_id, query, now, budget, emit_new, per_page, set() if seen is None else seen)
     collector.slice(Slice(window.field, window.start, window.end))

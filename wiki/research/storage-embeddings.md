@@ -1,6 +1,6 @@
 # Research: Local data store and embeddings
 
-[← Wiki home](../README.md) · Related: [architecture § data model](../spec/architecture.md#4-data-model-sqlite) · [ADR-002](../spec/decisions.md) · [M0](../plans/phase-1/M0-foundation.md) · [M4](../plans/phase-1/M4-embeddings.md)
+[← Wiki home](../README.md) · Related: [architecture § data model](../spec/architecture.md#4-data-model-sqlite) · [ADR-002](../spec/decisions.md) · [spike T02](../spikes/T02-sqlite-vec.md)
 
 Status: researched 2026-11-07.
 
@@ -8,7 +8,7 @@ Status: researched 2026-11-07.
 
 - **sqlite-vss is not in active development**; its author moved to **sqlite-vec**, described as easier to install and use and written because vss was not optimized enough.
 - sqlite-vec: `pip install sqlite-vec`, load with `sqlite_vec.load(conn)`; `vec0` virtual tables; KNN via `WHERE embedding MATCH ? ORDER BY distance LIMIT k`. **Pre-v1: expect breaking changes** → pin the exact version in `pyproject.toml`.
-- **macOS gotcha:** loading an extension needs `sqlite3.Connection.enable_load_extension(True)`. Apple's system Python and some builds compile sqlite3 without extension loading. uv-managed CPython (python-build-standalone) is expected to support it **(verify in spike [P1-T02](../plans/phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python))**.
+- **macOS gotcha:** loading an extension needs `sqlite3.Connection.enable_load_extension(True)`. Apple's system Python and some builds compile sqlite3 without extension loading. uv-managed CPython (python-build-standalone) is expected to support it **(verify in spike [P1-T02](../archive/plans/phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python))**.
 - **Fallback (decided in advance):** store vectors as `float32` BLOBs in a plain table and do brute-force cosine similarity in numpy. For a few thousand repos per domain this is milliseconds. The vector index is therefore an *optimization*, never the source of truth.
 
 DuckDB (with the `vss` extension) was considered: good for analytics but adds a second engine and its HNSW persistence is experimental. SQLite keeps one file, one engine, stdlib driver. Decision in [ADR-002](../spec/decisions.md#adr-002-sqlite--sqlite-vec-with-numpy-fallback).
@@ -28,7 +28,7 @@ DuckDB (with the `vss` extension) was considered: good for analytics but adds a 
 | MLX (`mlx-embeddings`) | separate venv + worker subprocess, same pattern as deciders | Fully in-repo | More setup; second ML stack to maintain |
 | sentence-transformers on MPS | torch in a worker venv | Many models | Heavy |
 
-Decision: **Ollama backend in Phase 1** behind an `Embedder` protocol; MLX worker is a Phase 2 option only if needed. Default model `nomic-embed-text` (768 dims) **(verify dims in spike [P1-T04](../plans/phase-1/M0-foundation.md#p1-t04-spike-ollama-embedder-returns-vectors))**. nomic expects task prefixes: use `search_document: ` for repo texts and `search_query: ` for queries.
+Decision: **Ollama backend in Phase 1** behind an `Embedder` protocol; MLX worker is a Phase 2 option only if needed. Default model `nomic-embed-text` (768 dims) **(confirmed in [spike T04](../spikes/T04-ollama.md))**. nomic expects task prefixes: use `search_document: ` for repo texts and `search_query: ` for queries.
 
 Rules:
 - Every stored vector records `model` and `dim`. Similarity queries filter by model; vectors of two models are never mixed. Changing `embed.model` triggers re-embedding (old rows kept until replaced).

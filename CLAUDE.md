@@ -25,14 +25,15 @@ pass against fixtures and fakes.
 ## Where things are
 
 - Architecture and config keys: [wiki/spec/architecture.md](wiki/spec/architecture.md)
-- Plan, tasks and global constraints: [wiki/plans/ROADMAP.md](wiki/plans/ROADMAP.md)
-- Task protocol (claim, commit, report): [wiki/plans/AGENT-GUIDE.md](wiki/plans/AGENT-GUIDE.md)
-- Reference code to port from: `/Users/andreyshulga/projects/experimental/jevs/as.tegerun.cli`
+- Wiki index (spec, research notes, spike results): [wiki/README.md](wiki/README.md)
+- Decisions behind the design: [wiki/spec/decisions.md](wiki/spec/decisions.md)
+- User guides (setup, configuration, running, troubleshooting): [docs/](docs/getting-started.md)
+- Historical development plans and task board (archived, not maintained): [wiki/archive/](wiki/archive/README.md)
 
 ## Global constraints
 
 1. All feature flags default to `false`. Includes `triage.enabled`, `embed.enabled`, `notify.enabled`, `run.send`, `triage.online`, `triage.allow_remote`. Installing launchd is an explicit command, never automatic.
-2. Agents commit and push themselves (project rule). Never force-push and never rewrite published history.
+2. Contributors and agents: never force-push or rewrite published history; commits follow CONTRIBUTING.md.
 3. Local first: no repo data leaves the machine except GitHub API calls and the Telegram digest. No hosted model APIs unless `triage.allow_remote: true`.
 4. Tests never touch the network, GitHub, Telegram, Ollama or a model. Use fixtures in `tests/fixtures/`, `httpx.MockTransport` and injected fakes. Live tests are marked `@pytest.mark.live` and run only with `REPKA_LIVE=1`.
 5. Secrets (`REPKA_GITHUB_TOKEN` or `gh` login, `REPKA_TG_API_ID`/`REPKA_TG_API_HASH`, `.sessions/`) live only in `.env` / `.sessions/`. Never log them, store them in the DB or the wiki, or pass them to worker subprocesses.

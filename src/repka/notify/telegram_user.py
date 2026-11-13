@@ -23,6 +23,7 @@ class SendResult:
     sent: int = 0
     message_ids: list[int] = field(default_factory=list)
     error: str | None = None
+    delivery_unknown: bool = False  # the call timed out: the message may or may not have gone out
 
 
 class Sender(Protocol):
@@ -59,6 +60,7 @@ async def deliver_parts(session: Any, chat_id: str, parts: list[str], topic_id: 
         args: dict[str, Any] = {"chat_id": chat_id, "message": part, "parse_mode": "html"}
         if topic_id is not None:
             args["reply_to_id"] = topic_id
+        unknown = False
         try:
             res = await session.call_tool("send_message", args)
             payload = extract_payload(res)
@@ -67,8 +69,9 @@ async def deliver_parts(session: Any, chat_id: str, parts: list[str], topic_id: 
                 ids.append(int(payload["message_id"]))
         except Exception as exc:  # noqa: BLE001 - the contract is "never raises"
             error = f"{type(exc).__name__}: {exc}"
+            unknown = isinstance(exc, TimeoutError)  # no answer is not "not delivered"
         if error is not None:
-            return SendResult(ok=False, sent=len(ids), message_ids=ids, error=error)
+            return SendResult(ok=False, sent=len(ids), message_ids=ids, error=error, delivery_unknown=unknown)
     return SendResult(ok=True, sent=len(ids), message_ids=ids)
 
 

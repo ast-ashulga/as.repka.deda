@@ -14,7 +14,7 @@ from repka.store.repo import repos_for_domain
 from repka.store.vectors import embedding_hash, upsert_embedding
 from repka.textutil import printable, truncate
 
-# nomic-embed-text works without task prefixes (wiki/spikes/T04-ollama.md): both stay empty.
+# nomic-embed-text works without task prefixes (measured against the model): both stay empty.
 # A change here re-embeds everything, because the hash covers the prefixed text.
 DOC_PREFIX = ""
 QUERY_PREFIX = ""

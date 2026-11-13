@@ -9,7 +9,7 @@
 #   grouping  joint  — all questions of one group go in a single request (one pass);
 #             single — each question as a separate request.
 #             pplx-decider-flash recommends single; d1 is tuned for joint.
-#             Override: triage.grouping in .config.yaml
+#             Set per model here; there is no override in .config.yaml.
 #   device    auto | cuda | mps | cpu
 #   dtype     auto | bf16 | fp16 | fp32
 #             d1: auto = bf16 on mps/cuda, fp32 on cpu (as in model card).

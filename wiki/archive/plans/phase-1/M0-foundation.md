@@ -17,12 +17,12 @@ Goal of the milestone: a runnable, tested `repka` skeleton with strict config, p
 - Test: `tests/conftest.py`, `tests/test_smoke.py`, `tests/test_config.py`, `tests/test_textutil.py`, `tests/test_runlock.py`, `tests/test_cli.py`
 
 **Interfaces:**
-- Consumes: nothing. Port patterns from the reference `src/tegerun/config.py`, `runstate.py` (`RunLock`), `textutil.py`, `cli.py`.
+- Consumes: nothing. Port patterns (config loader, `RunLock`, text utilities, CLI wiring) from the earlier private prototype.
 - Produces:
-  - `repka.config`: `class ConfigError(ValueError)`; `project_root() -> Path` (honours `$REPKA_HOME`); `state_dir() / db_path() / logs_dir() / domains_dir() / deciders_dir() -> Path`; `parse_duration(s: str) -> timedelta` (`"30m"`, `"12h"`, `"7d"`); dataclasses `GithubConfig, CollectConfig, TriageConfig, EmbedConfig, DigestConfig, NotifyConfig, RunConfig` and `AppConfig` holding one of each, keys and defaults exactly as [architecture § 3.2](../../spec/architecture.md#32-configyaml-tracked-every-key-optional-defaults-shown-all-booleans-default-false); `load_config(path: Path | None = None) -> AppConfig`; `read_env() -> dict[str, str]` (reads `.env` via python-dotenv without exporting to `os.environ`; missing file → `{}`); `github_token() -> str` (`REPKA_GITHUB_TOKEN` from `.env`; if empty, falls back to `gh auth token` via `subprocess.run(timeout=10)`; neither → `ConfigError` naming both options; the token is never logged); `github_token_source() -> Literal["env", "gh"]` (which of the two `github_token()` used; for error messages). Telegram credentials are added by T20; `worker_env() -> dict[str, str]` (allowlist: `PATH, HOME, LANG, LC_ALL, TMPDIR, HF_HOME, HF_HUB_CACHE`; never tokens).
+  - `repka.config`: `class ConfigError(ValueError)`; `project_root() -> Path` (honours `$REPKA_HOME`); `state_dir() / db_path() / logs_dir() / domains_dir() / deciders_dir() -> Path`; `parse_duration(s: str) -> timedelta` (`"30m"`, `"12h"`, `"7d"`); dataclasses `GithubConfig, CollectConfig, TriageConfig, EmbedConfig, DigestConfig, NotifyConfig, RunConfig` and `AppConfig` holding one of each, keys and defaults exactly as [architecture § 3.2](../../../spec/architecture.md#32-configyaml-tracked-every-key-optional-defaults-shown-all-booleans-default-false); `load_config(path: Path | None = None) -> AppConfig`; `read_env() -> dict[str, str]` (reads `.env` via python-dotenv without exporting to `os.environ`; missing file → `{}`); `github_token() -> str` (`REPKA_GITHUB_TOKEN` from `.env`; if empty, falls back to `gh auth token` via `subprocess.run(timeout=10)`; neither → `ConfigError` naming both options; the token is never logged); `github_token_source() -> Literal["env", "gh"]` (which of the two `github_token()` used; for error messages). Telegram credentials are added by T20; `worker_env() -> dict[str, str]` (allowlist: `PATH, HOME, LANG, LC_ALL, TMPDIR, HF_HOME, HF_HUB_CACHE`; never tokens).
   - `repka.textutil`: `printable(s: str) -> str` (drop C0/C1 control chars except `\n\t`), `html_escape(s: str) -> str` (`& < >` and `"`), `truncate(s: str, n: int) -> str` (adds `…`).
   - `repka.runlock`: `class LockBusy(RuntimeError)`; `RunLock(path: Path)` context manager using `fcntl.flock(LOCK_EX | LOCK_NB)`.
-  - `repka.models`: the frozen dataclasses of [architecture § 6](../../spec/architecture.md#6-core-types-srcrepkamodelspy) (fields only; later tasks may add fields with defaults).
+  - `repka.models`: the frozen dataclasses of [architecture § 6](../../../spec/architecture.md#6-core-types-srcrepkamodelspy) (fields only; later tasks may add fields with defaults).
   - `repka.cli`: `main(argv: list[str] | None = None) -> int`; `build_parser() -> argparse.ArgumentParser` with a subparser registry later tasks extend: `def register(sub: argparse._SubParsersAction) -> None` functions imported in `build_parser`. Errors: `ConfigError`/`ValueError` → `error: ...` on stderr, exit 2.
   - `repka.logging_setup`: `setup_logging(level: str = "INFO", verbose: bool = False) -> None` (stderr + rotating `logs/repka.log`, 5 × 1 MB).
 
@@ -76,7 +76,7 @@ def test_help_exits_zero(); def test_config_error_exits_2(home)  # malformed .co
 
 ### P1-T02: Spike: sqlite-vec loads under uv Python
 
-**Req:** R-1.4, R-G2 · **Depends on:** T01 · **Size:** S · **Fallback:** numpy brute force ([ADR-002](../../spec/decisions.md#adr-002-sqlite--sqlite-vec-with-numpy-fallback))
+**Req:** R-1.4, R-G2 · **Depends on:** T01 · **Size:** S · **Fallback:** numpy brute force ([ADR-002](../../../spec/decisions.md#adr-002-sqlite--sqlite-vec-with-numpy-fallback))
 **Goal:** Know whether `vec0` indexes are usable on this Mac and how fast both paths are.
 
 **Files:**
@@ -103,11 +103,11 @@ def test_help_exits_zero(); def test_config_error_exits_2(home)  # malformed .co
 **Goal:** Copy the proven decider kit from the reference project, run it on a labelled sample of repository texts, and measure speed and accuracy. Separately decide GO/NO-GO for a Clef MLX backend.
 
 **Files:**
-- Create (copy from `../as.tegerun.cli/classifier/`, then adapt paths/names): `deciders/models.yaml`, `deciders/setup.sh`, `deciders/fetch.py`, `deciders/README.md`, `deciders/workers/d1_worker.py`, `deciders/workers/pplx_worker.py`
-- Create: `deciders/questions.yaml` (repo-triage questions from [deciders § 4](../../research/deciders.md#4-triage-questions-for-repositories-default-set); **do not** copy the reference questions' contents), `tests/fixtures/triage_sample.jsonl`, `scripts/spike_decider.py`, `wiki/spikes/T03-deciders.md`
+- Create (copy from the prototype's `classifier/`, then adapt paths/names): `deciders/models.yaml`, `deciders/setup.sh`, `deciders/fetch.py`, `deciders/README.md`, `deciders/workers/d1_worker.py`, `deciders/workers/pplx_worker.py`
+- Create: `deciders/questions.yaml` (repo-triage questions from [deciders § 4](../../../research/deciders.md#4-triage-questions-for-repositories-default-set); **do not** copy the reference questions' contents), `tests/fixtures/triage_sample.jsonl`, `scripts/spike_decider.py`, `wiki/spikes/T03-deciders.md`
 
 **Interfaces:**
-- Produces: `deciders/` directory with the worker I/O contract unchanged ([deciders § 3](../../research/deciders.md#3-integration-pattern-reused-from-the-reference-project)); `questions.yaml` with ids `relevant` (noul), `substance` (score, 5 levels), `kind` (choice), `is_junk` (noul, `enabled: false`); state templates with placeholders `{full_name} {description} {topics} {language} {stars} {is_fork} {readme_excerpt} {domain_profile}`; verdict on default model and Clef.
+- Produces: `deciders/` directory with the worker I/O contract unchanged ([deciders § 3](../../../research/deciders.md#3-integration-pattern-reused-from-the-reference-project)); `questions.yaml` with ids `relevant` (noul), `substance` (score, 5 levels), `kind` (choice), `is_junk` (noul, `enabled: false`); state templates with placeholders `{full_name} {description} {topics} {language} {stars} {is_fork} {readme_excerpt} {domain_profile}`; verdict on default model and Clef.
 
 - [ ] **Step 1: Copy** the files listed; keep `models.yaml` revisions byte-identical; change only directory names/comments. `setup.sh` creates `deciders/.venv-liquid` and `.venv-pplx`.
 - [ ] **Step 2: Write `deciders/questions.yaml`** with the four questions and two state templates.
@@ -116,7 +116,7 @@ def test_help_exits_zero(); def test_config_error_exits_2(home)  # malformed .co
 - [ ] **Step 5: Run** `./deciders/setup.sh && ./deciders/setup.sh --download d1-3B` (≈ 6 GB; if the agent lacks permission or disk, set status `blocked` and ask the human to run it), then `uv run python scripts/spike_decider.py`.
 - [ ] **Step 6: Clef check** (time-boxed 1 hour): find the official Clef/Clef-flash model card; note RAM of this Mac (`sysctl hw.memsize`). If ≥ 16 GB and an MLX build loads via its `clef_mlx.py` in a throwaway venv, run the same sample. Record repo id, revision, RAM, speed, accuracy, or why NO-GO.
 - [ ] **Step 7: Write `wiki/spikes/T03-deciders.md`** with tables for each model tried and verdicts: **default model** (d1-3B or d1-2B) and **Clef: GO/NO-GO**. Update the ROADMAP Notes for T03 and T16 (`dropped` if Clef NO-GO).
-- [ ] **Step 8: Commit & push**, report. Message: `feat: decider kit copied from tegerun, triage questions, spike results`.
+- [ ] **Step 8: Commit & push**, report. Message: `feat: decider kit copied from the prototype, triage questions, spike results`.
 
 **Acceptance criteria:** d1 model answers all 20 sample items; spike page lists accuracy and ms/item; default model named; Clef verdict recorded with reasons. The `deciders/` workers compile (smoke test picks them up).
 

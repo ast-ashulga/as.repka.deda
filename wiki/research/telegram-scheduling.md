@@ -1,6 +1,6 @@
 # Research: Telegram delivery and scheduling on macOS
 
-[← Wiki home](../README.md) · Related: [ADR-005/006](../spec/decisions.md) · [M5 Digest](../plans/phase-1/M5-digest.md) · [M6 Orchestration](../plans/phase-1/M6-orchestration.md)
+[← Wiki home](../README.md) · Related: [ADR-005/006](../spec/decisions.md)
 
 Status: researched 2026-11-07 (mostly from the reference project and prior knowledge; **(verify)** marks API details to re-check).
 
@@ -25,11 +25,11 @@ Decision ([ADR-005](../spec/decisions.md#adr-005-telegram-via-the-users-own-acco
 
 ## 2. Reused safety rules from the reference
 
-- Sending is **off by default**: `notify.enabled: false` (must be a real YAML boolean) **and** `digest.send: false`. `--dry-run` prints the exact message.
+- Sending is **off by default**: `notify.enabled: false` (must be a real YAML boolean) **and** `run.send: false`. `--dry-run` prints the exact message.
 - Text from external sources: strip control characters before terminal output, HTML-escape before Telegram.
 - Stop a delivery after 2 consecutive send failures.
 
-## 3. Scheduling ("утром/вечером", no real-time alerts)
+## 3. Scheduling ("morning/evening", no real-time alerts)
 
 - **launchd** user agent (`~/Library/LaunchAgents/com.repka.run.plist`), not cron (cron misses runs while asleep; launchd coalesces missed `StartCalendarInterval` events into one run on wake).
 - One agent runs `repka run` **hourly** (`StartInterval 3600`). `repka run` decides itself:
@@ -42,6 +42,6 @@ Decision ([ADR-005](../spec/decisions.md#adr-005-telegram-via-the-users-own-acco
 
 ## Sources
 
-- Reference project `../as.tegerun.cli` README (launchd section, notifier rules) and `src/tegerun/notifier.py`.
+- The earlier private prototype's README (launchd section, notifier rules) and notifier module (not published).
 - Telegram Bot API (`sendMessage`, formatting, 4096 limit, `retry_after`): prior knowledge **(verify against core.telegram.org/bots/api)**.
 - launchd semantics (`StartCalendarInterval` coalescing): prior knowledge **(verify against `man launchd.plist`)**.

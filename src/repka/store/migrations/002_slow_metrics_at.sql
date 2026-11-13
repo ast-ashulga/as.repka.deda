@@ -1,4 +1,4 @@
--- P1-T12: when each slow REST metric was last fetched successfully (NULL = never / last attempt returned nothing).
+-- When each slow REST metric was last fetched successfully (NULL = never / last attempt returned nothing).
 -- Needed because snapshots carry the last contributors / active_weeks_12 forward, so a snapshot's own
 -- age says nothing about how stale the value is.
 ALTER TABLE repos ADD COLUMN contributors_at TEXT;

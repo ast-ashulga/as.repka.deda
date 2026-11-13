@@ -1,7 +1,7 @@
-"""One `repka run` pass: collect -> triage -> embed -> digest (-> releases message), with every boundary injected (architecture § 5).
+"""One `repka run` pass: collect -> triage -> embed -> digest (-> releases message), with every boundary injected.
 
 `run_pass` is pure orchestration. A stage that raises is logged and recorded in `errors`, and the pass goes on:
-the digest stage always runs, so a GitHub rate limit (RF1) or a crashed decider worker (RF7) never silences it.
+the digest stage always runs, so a GitHub rate limit or a crashed decider worker never silences it.
 Status: `ok`; `partial` when anything went wrong or was left unfinished; `failed` only when every stage that
 ran raised an unexpected exception.
 """

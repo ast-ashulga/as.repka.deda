@@ -8,8 +8,9 @@ import sqlite3
 import sys
 
 from repka import config
+from repka.cliutil import positive_int
 from repka.config import AppConfig, ConfigError, load_config
-from repka.domain.schema import Domain, get_domain, load_domains
+from repka.domain.schema import Domain, select_domains
 from repka.github.client import GitHubClient
 from repka.runlock import run_exclusive
 from repka.store.db import connect, utcnow
@@ -25,22 +26,6 @@ threshold in `triage.thresholds` passes. Verdicts are idempotent: a second run d
 A crashed or timed-out worker, a failed item or a rate-limited README fetch leaves the repo pending, never
 accepted or rejected. --dry-run loads no model and writes nothing.
 """
-
-
-def _positive(value: str) -> int:
-    try:
-        n = int(value)
-    except ValueError:
-        n = 0
-    if n < 1:
-        raise argparse.ArgumentTypeError(f"must be a positive integer (got {value!r})")
-    return n
-
-
-def _select_domains(domain_id: str | None) -> list[Domain]:
-    if domain_id:
-        return [get_domain(domain_id)]  # explicit: runs even if the domain is not enabled
-    return [d for d in load_domains() if d.enabled]
 
 
 def question_sets(cfg: AppConfig, domains: list[Domain]) -> dict[str, QuestionSet]:
@@ -105,7 +90,7 @@ def _cmd_triage(args: argparse.Namespace) -> int:
 
 def _triage(args: argparse.Namespace) -> int:
     cfg = load_config()
-    domains = _select_domains(args.domain)
+    domains = select_domains(args.domain)
     if not domains:
         print("no enabled domains: nothing to triage (see: repka domain list)", file=sys.stderr)
         return 0
@@ -199,7 +184,7 @@ def register(sub: argparse._SubParsersAction) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--domain", metavar="ID", help="only this domain (default: every enabled domain)")
-    p.add_argument("--limit", type=_positive, metavar="N", help="decide at most N pending repos per domain")
+    p.add_argument("--limit", type=positive_int, metavar="N", help="decide at most N pending repos per domain")
     p.add_argument("--dry-run", action="store_true", help="print the pending count and the first model input; loads no model")
     p.add_argument("--json", action="store_true", help="print JSON instead of a summary and table")
     p.set_defaults(func=_cmd_triage)

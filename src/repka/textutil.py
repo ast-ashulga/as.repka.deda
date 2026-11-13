@@ -14,6 +14,15 @@ def printable(text: str) -> str:
     return _UNSAFE.sub("", text)
 
 
+_FENCE = re.compile(r'"{3,}')
+
+
+def neutralize_fence(text: str) -> str:
+    """Break up runs of three or more double quotes with zero-width spaces, so untrusted text placed inside a
+    triple-quoted block of a model prompt cannot close that block. Shorter runs are left alone."""
+    return _FENCE.sub(lambda m: "\u200b".join(m.group()), text)
+
+
 def html_escape(text: str) -> str:
     """Escape & < > and " for Telegram HTML parse mode."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")

@@ -78,7 +78,7 @@ def test_stage_order_and_flags_off_skip_triage_and_embed():
     ],
     ids=["raised", "reported"],
 )
-def test_rate_limited_run_is_partial_and_continues_to_digest(collect):  # RF1
+def test_rate_limited_run_is_partial_and_continues_to_digest(collect):
     fakes = Fakes(collect=collect)
     report = run_pass([domain()], ON, fakes.boundaries(), NOW, send=True)
     assert report.status == "partial"
@@ -86,7 +86,7 @@ def test_rate_limited_run_is_partial_and_continues_to_digest(collect):  # RF1
     assert report.errors
 
 
-def test_worker_error_is_partial_and_continues():  # RF7
+def test_worker_error_is_partial_and_continues():
     fakes = Fakes(triage=WorkerError("worker timed out"))
     report = run_pass([domain("a"), domain("b")], ON, fakes.boundaries(), NOW, send=True)
     assert report.status == "partial"

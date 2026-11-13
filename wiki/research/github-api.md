@@ -1,6 +1,6 @@
 # Research: GitHub API for the Collector
 
-[← Wiki home](../README.md) · Related: [architecture](../spec/architecture.md) · [M2 Collector](../plans/phase-1/M2-collector.md)
+[← Wiki home](../README.md) · Related: [architecture](../spec/architecture.md)
 
 Status: researched 2026-11-07. Items marked **(verify)** need a quick check against live docs during the task that uses them.
 
@@ -56,12 +56,12 @@ Status: researched 2026-11-07. Items marked **(verify)** need a quick check agai
 
 ## 6. Auth
 
-- Token: `REPKA_GITHUB_TOKEN` in `.env` (gitignored) if set, otherwise the `gh` CLI token (`gh auth token`, user's choice 2026-11-07; logged in as `ast-ashulga`, search limit 30/min, GraphQL 5,000/h confirmed). Headers: `Authorization: Bearer <token>`, `X-GitHub-Api-Version: 2022-11-28`, a generic `User-Agent: repka-cli`.
+- Token: `REPKA_GITHUB_TOKEN` in `.env` (gitignored) if set, otherwise the `gh` CLI token (`gh auth token`; authenticated search limit 30/min and GraphQL 5,000/h confirmed). Headers: `Authorization: Bearer <token>`, `X-GitHub-Api-Version: 2022-11-28`, a generic `User-Agent: repka-cli`.
 - Token never enters decider-worker or embedder environments, logs or the DB.
 
 ## Sources
 
-- [GitHub REST: search endpoints](https://docs.github.com/ru/rest/search/search) (rate limit, 1,000-result cap, `incomplete_results`, 4,000-repo scope)
+- [GitHub REST: search endpoints](https://docs.github.com/en/rest/search/search) (rate limit, 1,000-result cap, `incomplete_results`, 4,000-repo scope)
 - [GitHub REST search (de)](https://docs.github.com/de/rest/reference/search)
 - [Stack Overflow: getting all 1,000 search results](https://kiwix.lema.org/stackoverflow.com_en_all_2023-11/questions/74869773/how-do-i-get-all-1000-results-using-the-github-search-api) (secondary rate limits after a few pages)
-- Fork default, GraphQL batching, blob OIDs, `stats/participation` 202 behaviour, conditional requests: GitHub docs, from prior knowledge **(verify)** while implementing [P1-T09…T13](../plans/phase-1/M2-collector.md).
+- Fork default, GraphQL batching, blob OIDs, `stats/participation` 202 behaviour, conditional requests: GitHub docs, from prior knowledge **(verify)** while implementing the collector.

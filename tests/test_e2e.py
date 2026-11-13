@@ -16,7 +16,15 @@ import httpx
 import pytest
 
 from repka.collect import collect_domains, due_domains, iso
-from repka.config import AppConfig, DigestConfig, EmbedConfig, GithubConfig, NotifyConfig, RunConfig, TriageConfig
+from repka.config import (
+    AppConfig,
+    DigestConfig,
+    EmbedConfig,
+    GithubConfig,
+    NotifyConfig,
+    RunConfig,
+    TriageConfig,
+)
 from repka.digest.releases import run_releases
 from repka.digest.run import run_digest
 from repka.domain.schema import Domain, SearchSpec

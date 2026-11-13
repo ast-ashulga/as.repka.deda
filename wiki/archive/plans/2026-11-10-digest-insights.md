@@ -92,7 +92,7 @@ Failure modes the spec implies that a reader would hit; each has a test in the n
 - Consumes: Task 1 config, Task 2 `facet_tags`.
 - Produces: `DigestSection.more_by_kind: dict[str, int]` (keys are `line_kind`: `new`, `found`, `mover`, `stack`, `release`; `more` stays the total); `Digest.insights: bool = False` (last field, defaulted); behaviour below.
 
-Behaviour (spec "Семантика, уточнённая после проверки"):
+Behaviour (spec section "Semantics refined after review"):
 - `cfg.releases_message` true → `release` events are skipped entirely in the main digest (not shown, not consumed, rejected repos included).
 - `cfg.insights` true → fill order is new, movers, stack, releases (releases last, sharing the per-domain limit); false → today's order (new, releases, movers, stack).
 - `cfg.insights` true → overflow `new_repo` events stay pending (not added to `consumed`); `new_repo` events with `detected_at` older than `now - cfg.pending_max_age` are consumed without being shown. Overflow `stack`/`release` events are still consumed as today. `cfg.insights` false → overflow consumed immediately, as today.

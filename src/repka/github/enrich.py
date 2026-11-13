@@ -13,13 +13,14 @@ import logging
 import sqlite3
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from repka.config import CollectConfig, ConfigError
 from repka.github.client import GitHubClient, GitHubError, RateLimited
 from repka.github.stack import parse_deps
 from repka.models import Event, KeyFile, Snapshot
+from repka.store.db import iso
 from repka.store.repo import (
     add_event,
     domains_of_repo,
@@ -56,10 +57,6 @@ _NODE_FIELDS = """
 _BLOB_TEXT_QUERY = "query($ids: [ID!]!) { nodes(ids: $ids) { ... on Blob { text } } }"
 
 
-def _iso(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _ts(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
@@ -76,8 +73,7 @@ class EnrichStats:
 def build_enrich_query(key_files: Sequence[str]) -> tuple[str, dict[str, str]]:
     """GraphQL text for one batch plus the alias -> key-file path map (`kf0..kfN`).
 
-    Deviation from the plan text: `$since90` is not declared (an unused variable is a GraphQL
-    validation error); `releases_90d` is counted client-side from the last 10 releases.
+    `$since90` is not declared (an unused variable is a GraphQL validation error); `releases_90d` is counted client-side from the last 10 releases.
     """
     aliases = {f"kf{i}": path for i, path in enumerate(key_files)}
     blobs = "".join(
@@ -146,12 +142,12 @@ def _refresh_slow(
     if _due(contributors_at, now, cfg.slow_metrics_every):
         value = _fetch_slow(client.contributors_count, "contributors", full_name)
         snap = replace(snap, contributors=value)  # None is stored as NULL and retried next run
-        new_c = _iso(now) if value is not None else None
+        new_c = iso(now) if value is not None else None
     if _due(participation_at, now, cfg.slow_metrics_every):
         series = _fetch_slow(client.participation, "participation", full_name)
         weeks = sum(1 for w in series[-12:] if w) if series is not None else None
         snap = replace(snap, active_weeks_12=weeks)
-        new_p = _iso(now) if weeks is not None else None
+        new_p = iso(now) if weeks is not None else None
     return snap, new_c, new_p
 
 
@@ -160,7 +156,7 @@ def _changed_blobs(
 ) -> list[str]:
     """Blob node ids of every key file whose oid differs from the stored one."""
     wanted = []
-    for repo_id, node in zip(batch, nodes):
+    for repo_id, node in zip(batch, nodes, strict=True):
         for alias, path in aliases.items():
             blob = (node or {}).get(alias)
             known = latest_key_file(conn, repo_id, path)
@@ -176,7 +172,7 @@ def _fetch_texts(client: GitHubClient, blob_ids: list[str]) -> dict[str, str | N
     texts = data.get("nodes") or []
     if len(texts) != len(blob_ids):
         raise GitHubError(f"GraphQL returned {len(texts)} blobs for {len(blob_ids)} ids")
-    return {bid: (t or {}).get("text") for bid, t in zip(blob_ids, texts)}  # text is null for binary/huge files
+    return {bid: (t or {}).get("text") for bid, t in zip(blob_ids, texts, strict=True)}  # text is null for binary/huge files
 
 
 def _release_event(
@@ -191,7 +187,7 @@ def _release_event(
     tag = snap.latest_release_tag
     if tag is None:
         return None
-    if baseline and prev is None:  # silent baseline scan: a first sighting is not news (P1-T22)
+    if baseline and prev is None:  # silent baseline scan: a first sighting is not news
         return None
     if prev is not None:
         if prev.latest_release_tag == tag:
@@ -239,7 +235,7 @@ def _key_file_events(
             continue
         text = texts.get(blob["id"])
         deps = parse_deps(path, text) if text is not None else None
-        insert_key_file(conn, KeyFile(repo_id, path, blob["oid"], text), deps, _iso(now))
+        insert_key_file(conn, KeyFile(repo_id, path, blob["oid"], text), deps, iso(now))
         if known is None:  # first sighting: baseline, no events
             continue
         old_oid, old_deps = known
@@ -276,7 +272,7 @@ def _enrich_one(
         stats.gone += 1
         return
     prev = latest_snapshot(conn, repo_id)
-    if prev is not None and _iso(prev.taken_at) == _iso(now):
+    if prev is not None and iso(prev.taken_at) == iso(now):
         return  # already enriched at this instant (same repo in two domains of one run)
     snap = snapshot_from_node(node, now, prev)
     stamps = (None, None)
@@ -320,7 +316,7 @@ def enrich_repos(
     limits key-file and stack events to domains that track the path (an unknown domain gets them)."""
     stats = EnrichStats()
     query, aliases = build_enrich_query(key_files)
-    since = {"since7": _iso(now - timedelta(days=7)), "since30": _iso(now - timedelta(days=30))}
+    since = {"since7": iso(now - timedelta(days=7)), "since30": iso(now - timedelta(days=30))}
     rows = {}
     for repo_id in repo_ids:
         row = conn.execute("SELECT node_id, full_name FROM repos WHERE repo_id = ?", (repo_id,)).fetchone()
@@ -330,10 +326,9 @@ def enrich_repos(
             rows[repo_id] = row
     ids = list(rows)
 
-    def _write_batch(batch: list[int], nodes: list) -> None:
-        texts = _fetch_texts(client, _changed_blobs(conn, batch, nodes, aliases))
+    def _write_batch(batch: list[int], nodes: list, texts: dict[str, str | None]) -> None:
         try:
-            for repo_id, node in zip(batch, nodes):
+            for repo_id, node in zip(batch, nodes, strict=True):
                 conn.execute("SAVEPOINT enrich_repo")
                 try:
                     _enrich_one(client, conn, domain_id, repo_id, node, rows[repo_id]["full_name"],
@@ -351,8 +346,9 @@ def enrich_repos(
 
     failed_alone = 0  # consecutive single nodes that failed: an outage, not a poisonous repo
 
-    def fetch(part: list[int]) -> Iterator[tuple[list[int], list]]:
-        """Nodes for `part`; a failing call (5xx, timeout, empty body) is retried as two halves, recursively.
+    def fetch(part: list[int]) -> Iterator[tuple[list[int], list, dict[str, str | None]]]:
+        """Nodes and changed key-file texts for `part`; a failing call (5xx, timeout, empty body) is retried
+        as two halves, recursively.
 
         GitHub cuts a heavy `nodes(ids:)` query off after ~10 s (502 or an empty 200), so a batch near that
         line fails at random. A node that fails even alone is skipped for this run (it has no snapshot, so
@@ -364,6 +360,7 @@ def enrich_repos(
             nodes = data.get("nodes") or []
             if len(nodes) != len(part):
                 raise GitHubError(f"GraphQL returned {len(nodes)} nodes for {len(part)} ids")
+            texts = _fetch_texts(client, _changed_blobs(conn, part, nodes, aliases))
         except RateLimited:
             raise
         except GitHubError as exc:
@@ -381,11 +378,11 @@ def enrich_repos(
             yield from fetch(part[mid:])
         else:
             failed_alone = 0
-            yield part, nodes
+            yield part, nodes, texts
 
     for start in range(0, len(ids), cfg.enrich_batch):
-        for batch, nodes in fetch(ids[start : start + cfg.enrich_batch]):
-            _write_batch(batch, nodes)
+        for batch, nodes, texts in fetch(ids[start : start + cfg.enrich_batch]):
+            _write_batch(batch, nodes, texts)
         if progress is not None:
             progress(min(start + cfg.enrich_batch, len(ids)), len(ids))
     return stats

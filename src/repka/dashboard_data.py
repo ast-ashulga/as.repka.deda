@@ -1,9 +1,12 @@
-"""Read-only data layer for the Phase 2 dashboard (ADR-008).
+"""Data layer for the dashboard: pages call these functions and hold no SQL.
 
-Pages call these functions and hold no SQL. Every function takes an open connection first (the
-app passes `store.db.connect(readonly=True)`; tests pass a fixture DB) and returns a pandas
-DataFrame. Metric values come from `store.metrics`. Text that other people wrote (names,
-descriptions, error messages) goes through `textutil.printable()` here.
+The query functions take an open connection first (the app passes `store.db.connect(readonly=True)`;
+tests pass a fixture DB) and mostly return a pandas DataFrame; a few helpers return plain values
+(`gap_after`, `sparkline_values`) or a tuple (`landscape_frame`). They only read, except
+`store_landscape`, which upserts the Landscape cache and needs a writable, migrated connection (the
+dashboard's one database write; its other write is the domain YAML files, done by the Domains page).
+Metric values come from `store.metrics`. Text that other people wrote (names, descriptions, error
+messages, release tags) goes through `textutil.printable()` here before it reaches a table.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from repka.digest.build import pending_overflow
 from repka.digest.releases import build_releases
 from repka.digest.slots import slot_key
 from repka.domain.schema import Domain, format_duration
-from repka.releases_cli import _releases
+from repka.releases_cli import releases_since
 from repka.store import repo
 from repka.store.metrics import repo_metrics, stars_delta, velocity
 from repka.textutil import printable
@@ -186,7 +189,7 @@ def recent_digests(conn: sqlite3.Connection, limit: int = 10) -> pd.DataFrame:
         (limit,),
     ).fetchall()
     frame = pd.DataFrame([dict(r) for r in rows], columns=_DIGEST_COLUMNS)
-    frame["slot"] = [slot.removeprefix(slot_key(kind, "")) for kind, slot in zip(frame["kind"], frame["slot"])]
+    frame["slot"] = [slot.removeprefix(slot_key(kind, "")) for kind, slot in zip(frame["kind"], frame["slot"], strict=True)]
     return frame
 
 
@@ -205,9 +208,9 @@ def recent_releases(
     """
     cutoff = (now or datetime.now(UTC)) - since
     rows = [
-        {"domain": _text(d.name), "repo": r.full_name, "stars": r.stars, "tag": r.tag, "published_at": r.published_at}
+        {"domain": _text(d.name), "repo": _text(r.full_name), "stars": r.stars, "tag": _text(r.tag), "published_at": r.published_at}
         for d in domains
-        for r in _releases(conn, d, cutoff)
+        for r in releases_since(conn, d, cutoff)
     ]
     return pd.DataFrame(rows, columns=_RELEASE_COLUMNS)
 
@@ -246,9 +249,9 @@ def waiting_items(
     return pd.DataFrame(rows, columns=_WAITING_COLUMNS)
 
 
-# --- Landscape map (P2-T03) --------------------------------------------------------------------------
-# The UMAP result is cached in `landscape_cache` (migration 003). Reading is read-only; computing reads
-# vectors, storing is the dashboard's one write besides domain files (see `store_landscape`).
+# --- Landscape map ----------------------------------------------------------------------------------
+# The UMAP result is cached in `landscape_cache` (migration 003). Reading the cache and computing the map
+# only read; `store_landscape` is the dashboard's one database write (besides the domain YAML files).
 
 LANDSCAPE_METHOD = "umap"
 LANDSCAPE_SEED = 42
@@ -352,8 +355,10 @@ def landscape_frame(
             "SELECT params_hash, payload FROM landscape_cache WHERE domain_id = ? AND model = ? AND method = ?",
             (domain_id, model, method),
         ).fetchone()
-    except sqlite3.OperationalError:  # migration 003 not applied yet
-        row = None
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc):  # "database is locked" and the like are real errors, not "not computed"
+            raise
+        row = None  # migration 003 not applied yet
     if row is None:
         return None, "not_computed"
     current = landscape.params_hash(ids, matrix, method, seed, min_cluster_size)
@@ -373,7 +378,7 @@ def landscape_frame(
     return frame, status
 
 
-# --- Analytics page (P2-T04) -------------------------------------------------------------------
+# --- Analytics page ---------------------------------------------------------------------------------
 
 GAP_SCAN_FACTOR = 1.5  # a missed scan doubles the spacing, so 1.5 scan intervals is the break point
 GAP_SLACK = timedelta(hours=6)  # run jitter: `repka run` is hourly and a due scan can start up to an hour late

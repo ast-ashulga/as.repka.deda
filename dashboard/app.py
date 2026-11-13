@@ -1,7 +1,9 @@
-"""repka dashboard home: domains, last runs and last digests. Read-only.
+"""repka dashboard home: domains, last runs and last digests. This page only reads.
 
 Launch with `repka dashboard`. Pages in dashboard/pages/ use the same pattern: open a read-only
-connection per rerun, call repka.dashboard_data, show the frame. No SQL lives here.
+connection per rerun, call repka.dashboard_data, show the frame. No SQL lives here. The two writes of
+the dashboard are on other pages: Domains edits domains/*.yaml, and Landscape "Recompute" applies
+pending migrations and stores the map in the database.
 """
 
 import sqlite3
@@ -11,9 +13,9 @@ import streamlit as st
 
 from repka import dashboard_data as data
 from repka.config import ConfigError, db_path, load_config, parse_duration
-from repka.domain.schema import load_domains
+from repka.domain.schema import format_duration, load_domains
 from repka.store.db import connect
-
+from repka.textutil import printable
 
 st.set_page_config(page_title="repka", layout="wide")
 st.title("repka")
@@ -27,7 +29,7 @@ domains = []
 try:
     domains = load_domains()
 except ConfigError as exc:
-    st.error(f"Domain files are invalid: {exc}")
+    st.error(f"Domain files are invalid: {printable(str(exc))}")
 
 try:
     with closing(connect(readonly=True)) as conn:
@@ -52,15 +54,20 @@ try:
             try:
                 digest_cfg = load_config().digest
             except ConfigError as exc:
-                st.error(f"Settings are invalid: {exc}")
+                st.error(f"Settings are invalid: {printable(str(exc))}")
                 digest_cfg = None
             if digest_cfg is not None:
                 st.subheader("Waiting for the next digest")
                 if digest_cfg.insights or digest_cfg.releases_message:
+                    expiry = (
+                        f"With `digest.insights` on, new and found items expire after `digest.pending_max_age` "
+                        f"({format_duration(digest_cfg.pending_max_age)})."
+                        if digest_cfg.insights
+                        else "Nothing expires while `digest.insights` is off."
+                    )
                     st.caption(
-                        "Items kept until shown (as in `repka digest --more`); they expire after "
-                        f"`digest.pending_max_age` ({digest_cfg.pending_max_age}). Releases are counted for the "
-                        "releases message when `digest.releases_message` is on."
+                        "Items kept until shown (as in `repka digest --more`). "
+                        f"{expiry} Releases are counted for the releases message when `digest.releases_message` is on."
                     )
                     waiting = data.waiting_items(conn, enabled, digest_cfg)
                     if waiting.empty:
@@ -78,4 +85,4 @@ try:
             else:
                 st.dataframe(data.shown(releases), hide_index=True)
 except sqlite3.Error as exc:
-    st.error(f"Could not read the database (run `repka db migrate`?): {exc}")
+    st.error(f"Could not read the database (run `repka db migrate`?): {printable(str(exc))}")

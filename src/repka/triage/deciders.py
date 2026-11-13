@@ -2,7 +2,7 @@
 
 deciders/ (questions.yaml + models.yaml + workers/) is the single source of truth. Models run in their own
 virtualenvs through workers that take a requests JSON and write an answers JSON; nothing heavy (torch,
-transformers, mlx) is ever imported here. Ported from as.tegerun.cli/src/tegerun/classify.py.
+transformers, mlx) is ever imported here.
 
 Model output is probabilities, not text: every enabled question gets an answer (`noul` -> P(yes),
 `choice` -> key, `score` -> level).
@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import re
 import subprocess
 import sys
@@ -187,7 +188,8 @@ def load_models(path: Path) -> dict[str, ModelSpec]:
 # --- requests for the workers ---------------------------------------------------------------------
 
 
-def _rid(item: TriageItem) -> str:
+def request_id(item: TriageItem) -> str:
+    """The worker-protocol id of an item: domain and repo."""
     return f"{item.domain_id}:{item.repo_id}"
 
 
@@ -209,11 +211,11 @@ def build_requests(items: Sequence[TriageItem], q: QuestionSet, grouping: str) -
     requests: list[dict] = []
     for item in items:
         if grouping == "joint":
-            requests.append({"rid": _rid(item), "state": item.state, "questions": _payload(q, list(q.questions))})
+            requests.append({"rid": request_id(item), "state": item.state, "questions": _payload(q, list(q.questions))})
         else:
             for qid in q.questions:
                 requests.append(
-                    {"rid": f"{_rid(item)}#{qid}", "state": item.state, "questions": _payload(q, [qid])}
+                    {"rid": f"{request_id(item)}#{qid}", "state": item.state, "questions": _payload(q, [qid])}
                 )
     return requests
 
@@ -305,25 +307,42 @@ def run_worker(
 # --- answers --------------------------------------------------------------------------------------
 
 
+_TOL = 1e-3  # model probabilities may overshoot [0, 1] by float noise (bf16/fp16)
+
+
+def _number(value: Any, what: str, lo: float, hi: float) -> float:
+    """A finite float within [lo, hi] (+ float noise); NaN, inf and out-of-range values are a ValueError, so
+    the item gets a per-item error and stays pending instead of being decided on a meaningless number."""
+    x = float(value)
+    if not math.isfinite(x) or x < lo - _TOL or x > hi + _TOL:
+        raise ValueError(f"{what} must be a number in [{lo:g}, {hi:g}], got {x!r}")
+    return x
+
+
 def normalize_answer(question: dict, raw: dict) -> dict:
-    """Model answer -> {type, pred, conf, ...}."""
+    """Model answer -> {type, pred, conf, ...}. Raises ValueError/KeyError/TypeError on an unusable answer."""
     t = question["type"]
     if t == "noul":
-        p = float(raw["noul"])
+        p = _number(raw["noul"], "noul", 0.0, 1.0)
         return {"type": t, "p": p, "pred": p > 0.5, "conf": max(p, 1 - p)}
     if t == "choice":
         return {
             "type": t,
             "pred": raw["choice"],
-            "conf": float(raw["confidence"]),
-            "probs": {k: float(v) for k, v in raw["probabilities"].items()},
+            "conf": _number(raw["confidence"], "confidence", 0.0, 1.0),
+            "probs": {k: _number(v, f"probability of {k!r}", 0.0, 1.0) for k, v in raw["probabilities"].items()},
         }
-    probs = {int(k): float(v) for k, v in raw["probabilities"].items()}
+    top = len(question["criteria"]) - 1  # levels are 0..top
+    probs = {
+        int(k): _number(v, f"probability of level {k}", 0.0, 1.0) for k, v in raw["probabilities"].items()
+    }
+    if not probs or any(not 0 <= level <= top for level in probs):
+        raise ValueError(f"probabilities must cover levels 0..{top}, got {sorted(probs)}")
     return {
         "type": t,
         "pred": max(probs, key=probs.get),  # type: ignore[arg-type]
-        "score": float(raw["score"]),
-        "conf": float(raw["confidence"]),
+        "score": _number(raw["score"], "score", 0.0, float(top)),
+        "conf": _number(raw["confidence"], "confidence", 0.0, 1.0),
         "probs": probs,
     }
 
@@ -355,15 +374,15 @@ class LocalWorkerBackend:
         rid_map: dict[str, tuple[str, list[str]]] = {}
         for item in items:
             if self.spec.grouping == "joint":
-                rid_map[_rid(item)] = (_rid(item), list(q.questions))
+                rid_map[request_id(item)] = (request_id(item), list(q.questions))
             else:
                 for qid in q.questions:
-                    rid_map[f"{_rid(item)}#{qid}"] = (_rid(item), [qid])
+                    rid_map[f"{request_id(item)}#{qid}"] = (request_id(item), [qid])
         out = run_worker(
             self.spec, requests, deciders_dir=self.deciders_dir, timeout_s=self.timeout_s, online=self.online
         )
 
-        gathered: dict[str, dict[str, dict]] = {_rid(item): {} for item in items}
+        gathered: dict[str, dict[str, dict]] = {request_id(item): {} for item in items}
         errors: dict[str, str] = {}
         answered: set[str] = set()
         for res in out.get("results", []):

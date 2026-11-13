@@ -216,6 +216,13 @@ def get_domain(domain_id: str) -> Domain:
     return load_domain(path)
 
 
+def select_domains(domain_id: str | None) -> list[Domain]:
+    """The named domain (runs even if it is not enabled), else every enabled domain."""
+    if domain_id:
+        return [get_domain(domain_id)]
+    return [d for d in load_domains() if d.enabled]
+
+
 class _DomainDumper(yaml.SafeDumper):
     """Multi-line strings (the profile) are written as literal blocks so the file stays readable."""
 

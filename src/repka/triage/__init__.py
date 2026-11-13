@@ -1,1 +1,1 @@
-"""Repository triage with local decider models (architecture § 8)."""
+"""Repository triage with local decider models."""

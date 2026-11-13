@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from repka.digest.slots import decide_slot, recorded_slots, slot_key
+import pytest
+
+from repka.config import ConfigError
+from repka.digest.slots import decide_slot, normalize_slot, recorded_slots, slot_key
 
 TZ = ZoneInfo("Asia/Tbilisi")
 SLOTS = ["08:30", "19:30"]
@@ -18,13 +21,13 @@ def test_slot_not_due_before_first_slot():
     assert d.due is None and d.skipped == []
 
 
-def test_missed_slots_coalesce():  # RF5: now 20:00, nothing recorded -> due 19:30; 08:30 and yesterday's are skipped
+def test_missed_slots_coalesce():  # now 20:00, nothing recorded -> due 19:30; 08:30 and yesterday's are skipped
     d = decide_slot(SLOTS, at(20), set(), LATE)
     assert d.due == ("19:30", TODAY)
     assert d.skipped == [("08:30", YESTERDAY), ("19:30", YESTERDAY), ("08:30", TODAY)]
 
 
-def test_stale_slot_skipped():  # RF5: now 03:00, yesterday 19:30 is 7.5h late (> 6h)
+def test_stale_slot_skipped():  # now 03:00, yesterday 19:30 is 7.5h late (> 6h)
     d = decide_slot(SLOTS, at(3), set(), LATE)
     assert d.due is None
     assert ("19:30", YESTERDAY) in d.skipped
@@ -58,3 +61,10 @@ def test_main_recorded_slots_ignore_releases_rows(tmp_path):
     assert recorded_slots(conn, YESTERDAY, kind="releases") == {("09:00", TODAY)}
     assert slot_key("main", "08:30") == "08:30" and slot_key("releases", "09:00") == "releases:09:00"
     conn.close()
+
+
+def test_normalize_slot_zero_pads_and_rejects_junk():
+    assert normalize_slot("8:30") == "08:30" and normalize_slot("19:05") == "19:05"
+    for bad in ("9am", "25:00", "", "8.30"):
+        with pytest.raises(ConfigError):
+            normalize_slot(bad)

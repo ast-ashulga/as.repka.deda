@@ -1,13 +1,11 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from helpers_digest import add_event, add_repo, add_snapshot, add_verdict
+from helpers_digest import add_event, add_repo, add_snapshot, add_verdict, make_db
 
 from repka.config import DigestConfig
 from repka.digest.build import MAX_FACETS, build_digest, facet_tags, pending_overflow
 from repka.domain.schema import Domain, SearchSpec
-
-from helpers_digest import make_db
 
 NOW = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
 DOMAIN = Domain(id="d1", name="MCP", profile="p", search=SearchSpec((), (), (), ()))
@@ -98,7 +96,7 @@ def test_mover_not_repeated_within_24h(conn):
     add_snapshot(conn, 1, 600, NOW - timedelta(hours=1))  # +100
     add_repo(conn, 2, stars=40, taken_at=t_old)
     add_snapshot(conn, 2, 60, NOW - timedelta(hours=1))  # +20: below threshold
-    add_repo(conn, 3, stars=9000, taken_at=NOW - timedelta(hours=1))  # first scan: no baseline (RF4)
+    add_repo(conn, 3, stars=9000, taken_at=NOW - timedelta(hours=1))  # first scan: no baseline
     for r in (1, 2, 3):
         add_verdict(conn, r, True)
     d = build(conn)
@@ -135,7 +133,7 @@ def test_new_repo_ranking(conn):
     assert [i.repo_id for i in section.new_repos] == [4, 3, 2, 1]
 
 
-def test_old_repo_found_later_is_marked_found_not_new(conn):  # RF8
+def test_old_repo_found_later_is_marked_found_not_new(conn):
     add_repo(conn, 1, created="2026-10-01T00:00:00Z")
     add_repo(conn, 2, created="2019-05-01T00:00:00Z")
     for r in (1, 2):

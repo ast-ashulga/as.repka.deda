@@ -40,7 +40,7 @@ def _quote(word: str) -> str:
 
 def _in_fields(words: tuple[str, ...], spec: SearchSpec) -> tuple[str, ...]:
     """GitHub returns nothing for a parenthesised group with a quoted phrase when `in:` lists `name`
-    (found in the T25 rehearsal), so `name` is dropped for such groups. Single words keep it."""
+    (observed on the live API), so `name` is dropped for such groups. Single words keep it."""
     if any(" " in w for w in words) and len(spec.in_fields) > 1:
         return tuple(f for f in spec.in_fields if f != "name")
     return spec.in_fields
@@ -129,7 +129,7 @@ def _make(q: str, term: str, language: str | None) -> Query:
 def scan_window(last_scan_at: datetime | None, now: datetime, cfg: CollectConfig) -> Window:
     """First scan: the backfill window (first_window). Later scans: from last scan minus overlap.
 
-    Always filters on `pushed` so long-established but active repos are found on the first scan (RF8).
+    Always filters on `pushed` so long-established but active repos are found on the first scan.
     """
     start = now - cfg.first_window if last_scan_at is None else last_scan_at - cfg.overlap
     return Window(field="pushed", start=start.date(), end=now.date())

@@ -1,4 +1,4 @@
-"""The daily releases message: its own digest row, slot and send/record cycle (design spec, "Учёт отправки релизов").
+"""The daily releases message: its own digest row, slot and send/record cycle (it keeps its own record of which releases were sent).
 
 When `digest.releases_message` is on, the main digest leaves `release` events alone; this module owns them.
 `build_releases` is a pure read like `build_digest`; `run_releases` stamps `events.digest_id` only after a real
@@ -13,14 +13,21 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from repka.config import AppConfig, DigestConfig
-from repka.digest.build import _json, _latest_verdicts, _stars
-from repka.digest.render import _link, _stars as _star_text, _text, split_messages
-from repka.digest.run import DigestOutcome, _chunks, _insert_digest, _record_skipped
-from repka.digest.slots import decide_slot, parse_slot, recorded_slots
+from repka.digest.build import current_stars, json_object, latest_verdicts
+from repka.digest.render import link_html, safe_text, split_messages, star_text
+from repka.digest.run import (
+    DigestOutcome,
+    _chunks,
+    _finalize_claim,
+    _insert_digest,
+    _record_skipped,
+    send_and_record,
+)
+from repka.digest.slots import decide_slot, normalize_slot, recorded_slots
 from repka.domain.schema import Domain
 from repka.models import DigestItem
 from repka.notify.telegram_user import Sender
-from repka.store.repo import _iso
+from repka.store.db import iso_or_none
 
 KIND = "releases"
 FOOTER = "Full list: repka releases --since 24h"
@@ -50,7 +57,7 @@ class ReleasesDigest:
 def _domain_section(
     conn: sqlite3.Connection, domain: Domain, cfg: DigestConfig, shown: list[int], consumed: list[int]
 ) -> ReleaseSection | None:
-    verdicts = _latest_verdicts(conn, domain.id)
+    verdicts = latest_verdicts(conn, domain.id)
     events = conn.execute(
         """
         SELECT e.id, e.repo_id, e.payload_json, r.full_name, r.html_url
@@ -73,8 +80,8 @@ def _domain_section(
     cands: list[tuple[tuple[int, int], DigestItem, list[int], int]] = []
     for repo_id, evs in by_repo.items():
         latest = evs[-1]  # newest release event of the repo; the older ones are consumed with it
-        payload = _json(latest["payload_json"])
-        stars = _stars(conn, repo_id)
+        payload = json_object(latest["payload_json"])
+        stars = current_stars(conn, repo_id)
         item = DigestItem(
             domain.id,
             repo_id,
@@ -121,9 +128,9 @@ def build_releases(
 
 def _release_line(item: DigestItem) -> str:
     f = item.text_fields
-    line = f"🚀 {_link(item)} ★{_star_text(int(f.get('stars') or 0))}"
+    line = f"🚀 {link_html(item)} ★{star_text(int(f.get('stars') or 0))}"
     if f.get("tag"):
-        line += f" · <code>{_text(f['tag'])}</code>"
+        line += f" · <code>{safe_text(f['tag'])}</code>"
     return line
 
 
@@ -131,9 +138,9 @@ def render_releases(d: ReleasesDigest) -> list[str]:
     """Message lines; empty when there is nothing to show."""
     if d.item_count == 0:
         return []
-    lines = [f"<b>repka</b> · releases · {_text(d.local_date)}"]
+    lines = [f"<b>repka</b> · releases · {safe_text(d.local_date)}"]
     for s in d.sections:
-        lines += ["", f"<b>{_text(s.domain_name)}</b> · {len(s.items) + s.more} releases"]
+        lines += ["", f"<b>{safe_text(s.domain_name)}</b> · {len(s.items) + s.more} releases"]
         lines += [_release_line(i) for i in s.items]
         if s.more:
             lines.append(f"…and {s.more} more")
@@ -144,7 +151,8 @@ def render_releases(d: ReleasesDigest) -> list[str]:
 def _record_sent(conn: sqlite3.Connection, d: ReleasesDigest, now: datetime) -> None:
     """One transaction: the `sent` row, events stamped (shown + consumed), what each item showed."""
     with conn:
-        digest_id = _insert_digest(conn, d.slot, d.local_date, "sent", d.item_count, _iso(now), KIND)
+        digest_id = _insert_digest(conn, d.slot, d.local_date, "sent", d.item_count, iso_or_none(now), KIND)
+        _finalize_claim(conn, digest_id, d.item_count, iso_or_none(now))
         for chunk in _chunks([*d.shown_event_ids, *d.consumed_event_ids]):
             marks = ",".join("?" * len(chunk))
             conn.execute(f"UPDATE events SET digest_id = ? WHERE id IN ({marks})", (digest_id, *chunk))
@@ -175,7 +183,7 @@ def run_releases(
 
     skipped: list[tuple[str, str]] = []
     if slot is not None:
-        parse_slot(slot)
+        slot = normalize_slot(slot)
         due = None if (slot, today) in recorded else (slot, today)
     else:
         decision = decide_slot([cfg.digest.releases_slot], local, recorded, cfg.digest.max_lateness)
@@ -195,8 +203,7 @@ def run_releases(
         return DigestOutcome("empty", *due, 0)
 
     assert sender is not None
-    result = sender.send(parts)
-    if result.sent < 1:
-        return DigestOutcome("failed", *due, digest.item_count, parts, result.error or "nothing delivered")
-    _record_sent(conn, digest, now)
-    return DigestOutcome("sent", *due, digest.item_count, parts, None if result.ok else result.error)
+    return send_and_record(
+        conn, sender, parts, slot=digest.slot, local_date=digest.local_date, count=digest.item_count, kind=KIND,
+        record=lambda: _record_sent(conn, digest, now),
+    )  # fmt: skip

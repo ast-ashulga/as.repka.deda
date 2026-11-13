@@ -10,9 +10,17 @@ import argparse
 import sys
 from collections.abc import Sequence
 
-from repka import __version__
-from repka import collect_cli, dashboard_cli, doctor_cli, releases_cli, run_cli, schedule, status_cli
-from repka.config import ConfigError, load_config
+from repka import (
+    __version__,
+    collect_cli,
+    dashboard_cli,
+    doctor_cli,
+    releases_cli,
+    run_cli,
+    schedule,
+    status_cli,
+)
+from repka.config import ConfigError, load_config, logs_dir
 from repka.digest import cli as digest_cli
 from repka.domain import cli as domain_cli
 from repka.embed import cli as embed_cli
@@ -28,7 +36,7 @@ DESCRIPTION = (
 EPILOG = """\
 exit codes: 0 ok | 1 runtime failure (GitHub, worker) | 2 usage or configuration error
 output:     results on stdout; progress, logs and `error: <message>` on stderr
-config:     .config.yaml (tracked defaults), .env (secrets), domains/*.yaml; see CLAUDE.md
+config:     .config.yaml (settings), .env (secrets), domains/*.yaml; see docs/configuration.md
 """
 
 
@@ -71,13 +79,21 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    func = getattr(args, "func", None)
+    if func is None:  # bare `repka`: help needs no configuration, so a broken one must not hide it
+        parser.print_help()
+        return 0
     try:
-        cfg = load_config()
-        setup_logging(cfg.run.log_level, verbose=args.verbose)
-        func = getattr(args, "func", None)
-        if func is None:
-            parser.print_help()
-            return 0
+        try:
+            cfg = load_config()
+        except ConfigError:
+            if args.command != "doctor":
+                raise
+            cfg = None  # `repka doctor` reports a broken configuration as a check, with the fix
+        try:
+            setup_logging(cfg.run.log_level if cfg else "INFO", verbose=args.verbose)
+        except OSError as exc:  # unwritable REPKA_HOME or logs/: the user fixes the folder, not the code
+            raise ConfigError(f"cannot write logs under {logs_dir()}: {exc.strerror or exc} (check REPKA_HOME)") from exc
         return int(func(args))
     except ConfigError as exc:  # the user can fix it
         print(f"error: {exc}", file=sys.stderr)

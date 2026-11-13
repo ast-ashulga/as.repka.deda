@@ -1,6 +1,6 @@
 id: ai-agent-harness
 name: "AI Agent Harness"
-enabled: true
+enabled: false
 scan_every: 20h
 profile: |
   Agent harnesses: the runtime and scaffolding around an LLM agent that runs the
@@ -21,7 +21,7 @@ search:
   keywords:
     - ["agent harness", "coding agent harness"]
     - ["self-improving harness", "recursive self-improvement"]
-  topics: [agent-harness, agentic-harness, harness-engineering, deepseek-harness, self-improving, self-improving-agents, recursive-self-improvement]
+  topics: [agent-harness, agentic-harness, harness-engineering, self-improving, self-improving-agents, recursive-self-improvement]
   languages: [Python, TypeScript, Rust, Go]
   exclude: ["awesome"]
   min_stars: 30

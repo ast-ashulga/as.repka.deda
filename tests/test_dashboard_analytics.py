@@ -147,3 +147,23 @@ def test_single_snapshot_repo_shows_not_enough_snapshots_message(tmp_path, monke
     assert not at.exception
     expected = "Not enough history yet: a 7-day star delta needs a snapshot about a week old (keep `repka run` scheduled)."
     assert any(i.value == expected for i in at.info)
+
+
+def test_widgets_are_keyed_by_repo_id_not_name(tmp_path, monkeypatch):
+    """Two repos may carry the same full_name (a deleted repo re-created under its old name): both stay selectable."""
+    from streamlit.testing.v1 import AppTest
+
+    conn = _scratch_home(tmp_path, monkeypatch)
+    for rid, stars in ((1, 90), (2, 50)):
+        add_repo(conn, rid, full_name="o/same", stars=stars, taken_at=datetime(2026, 11, 7, 6, tzinfo=UTC))
+        add_verdict(conn, rid, accepted=True)
+    conn.commit()
+    conn.close()
+
+    at = AppTest.from_file(str(PAGE), default_timeout=60).run()
+    assert not at.exception
+    assert len(at.multiselect[0].value) == 2 and len(at.multiselect[0].options) == 2
+    stack = next(s for s in at.selectbox if s.key == "stack_repo")
+    assert stack.value in (1, 2)  # the value is the repo id
+    stack.select(2).run()
+    assert not at.exception

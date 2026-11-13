@@ -1,7 +1,7 @@
 # deciders — models and questions for `repka triage`
 
 Everything needed for local repository triage with System-1 ("decider") models.
-All paths are relative to the project; nothing outside this repo is required.
+All paths are relative to the project; nothing outside this repo is required except the one-time weight download.
 
 | File/Dir | Description |
 |---|---|
@@ -15,9 +15,10 @@ All paths are relative to the project; nothing outside this repo is required.
 
 ```bash
 ./deciders/setup.sh                   # create environments
-./deciders/setup.sh --download d1-3B  # download weights (~6 GB) to the HF cache
-uv run python scripts/spike_decider.py --model d1-3B   # smoke/benchmark on the labelled sample
+./deciders/setup.sh --download d1-3B  # one-time download of the weights (~6 GB) from Hugging Face into the HF cache
+uv run repka doctor                   # checks the environment and the weights
+uv run repka triage --dry-run         # pending count and the first model input; loads no model
 ```
 
 Models run offline by default (HuggingFace cache only). Workers accept `--config` JSON with `"online": true` to allow network access.
-Model results of the P1-T03 spike: `wiki/spikes/T03-deciders.md`.
+Measured accuracy and speed of the models on a small labelled sample: [the decider spike report](../wiki/spikes/T03-deciders.md).

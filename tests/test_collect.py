@@ -1,5 +1,5 @@
-from dataclasses import replace
 import json
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,12 +8,13 @@ import repka.collect as collect_mod
 import repka.collect_cli as collect_cli
 from repka.cli import main
 from repka.collect import collect_domains, due_domains
-from repka.config import AppConfig
+from repka.config import AppConfig, state_dir
 from repka.domain.schema import Domain, SearchSpec
 from repka.github.client import GitHubError, RateLimited
 from repka.github.enrich import EnrichStats
 from repka.github.search import QueryStats
 from repka.models import RepoHit
+from repka.runlock import RunLock
 from repka.store import repo
 from repka.store.db import connect, migrate
 from repka.store.repo import DomainState
@@ -54,6 +55,7 @@ class Fakes:
         self.searches: list[dict] = []
         self.enriched: list[dict] = []
         self._search = search
+        self.skipped = 0  # repos enrichment reports as skipped
         monkeypatch.setattr(collect_mod, "collect_search", self.collect_search)
         monkeypatch.setattr(collect_mod, "enrich_repos", self.enrich_repos)
 
@@ -67,7 +69,7 @@ class Fakes:
         self.enriched.append(
             {"domain": domain_id, "key_files_by_domain": kw.get("key_files_by_domain"), "ids": list(repo_ids), "slow_for": set(slow_for), "now": now, "baseline": baseline}
         )
-        return EnrichStats(repos=len(repo_ids))
+        return EnrichStats(repos=len(repo_ids), skipped=self.skipped)
 
 
 def raise_rate_limited(conn, domain, now):
@@ -119,6 +121,19 @@ def test_last_scan_not_advanced_on_partial(conn, monkeypatch):
     collect_domains(None, conn, [domain("a")], CFG, NOW)
     state = repo.get_domain_state(conn, "a")
     assert (state.last_scan_at, state.last_scan_status) == ("2026-11-01T00:00:00Z", "partial")
+
+
+def test_enrich_skips_end_the_baseline_but_mark_the_scan_partial(conn, monkeypatch):
+    """Documented in the module docstring: repos whose node kept failing are retried next run, they do not keep
+    the whole domain in first-scan mode (only a scan cut short does, see the test above)."""
+    fakes = Fakes(monkeypatch)
+    fakes.skipped = 1
+    report = collect_domains(None, conn, [domain()], CFG, NOW)
+    assert [r.status for r in report.domains] == ["partial"] and "skipped" in report.domains[0].error
+    state = repo.get_domain_state(conn, "alpha")
+    assert (state.last_scan_at, state.last_scan_status) == (NOW_S, "partial")
+    collect_domains(None, conn, [domain()], CFG, NOW + timedelta(hours=1))  # partial: due again at once
+    assert [s["emit_new"] for s in fakes.searches] == [False, True]
 
 
 def test_interrupted_first_scan_stays_a_silent_baseline(conn, monkeypatch):
@@ -255,6 +270,26 @@ def test_disabled_domain_with_flag_is_config_error(home, capsys):
     assert "disabled" in err and "enabled: true" in err
 
 
+def test_collect_cli_github_error_in_a_domain_exits_1_rate_limit_exits_0(home, monkeypatch, capsys):
+    write_domain(home)
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(collect_cli, "make_client", lambda cfg, conn: FakeClient())
+
+    def bad_gateway(conn, d, now):
+        raise GitHubError("HTTP 502")
+
+    Fakes(monkeypatch, search=bad_gateway)
+    assert main(["collect"]) == 1  # CLAUDE.md: GitHub failures are exit 1; the summary is still printed
+    assert "GitHub error: HTTP 502" in capsys.readouterr().out
+    Fakes(monkeypatch, search=raise_rate_limited)
+    assert main(["collect", "--domain", "alpha"]) == 0  # a rate limit is a clean stop, documented as exit 0
+    assert "rate limited" in capsys.readouterr().out
+
+
 def test_collect_cli_summary_and_second_run_not_due(home, monkeypatch, capsys):
     write_domain(home)
     Fakes(monkeypatch)
@@ -270,3 +305,11 @@ def test_collect_cli_summary_and_second_run_not_due(home, monkeypatch, capsys):
     assert main(["collect"]) == 0  # second immediate run
     out = capsys.readouterr().out
     assert "nothing due" in out and "not due: alpha" in out
+
+
+def test_collect_does_nothing_while_another_run_holds_the_lock(home, monkeypatch, capsys):
+    monkeypatch.setattr(collect_cli, "_select", lambda _args: ([], False))
+    monkeypatch.setattr(collect_cli, "_collect_locked", lambda *a: pytest.fail("ran without the lock"))
+    with RunLock(state_dir() / "run.lock"):
+        assert main(["collect"]) == 0
+    assert "another repka run is in progress" in capsys.readouterr().err

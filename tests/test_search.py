@@ -133,7 +133,7 @@ def test_bisection_splits_when_over_1000(conn):
     assert stats.hits == 8 * 313 and stats.capped == 0 and count(conn, "repos") == 8 * 313
 
 
-def test_bisection_stops_at_one_day_and_caps(conn):  # RF2
+def test_bisection_stops_at_one_day_and_caps(conn):
     client = FakeSearchClient(lambda days: 5000)
     stats, _ = run(client, conn, window(1))
     assert stats.hits == 1000 and stats.capped == 1 and stats.pages == 10
@@ -151,8 +151,10 @@ def test_bisection_stops_at_one_day_and_caps(conn):  # RF2
     }
 
 
-def test_resume_skips_completed_slices(db_file):  # RF1
-    leaf = lambda a, b: f"pushed:2026-11-0{a}..2026-11-0{b}"
+def test_resume_skips_completed_slices(db_file):
+    def leaf(a, b):
+        return f"pushed:2026-11-0{a}..2026-11-0{b}"
+
     l1, l2, l3, l4 = leaf(1, 2), leaf(3, 4), leaf(5, 6), leaf(7, 8)
     first = FakeSearchClient(lambda days: days * 313, fail_on=(l3, 2))
     c1 = connect(db_file)
@@ -172,7 +174,7 @@ def test_resume_skips_completed_slices(db_file):  # RF1
     c2.close()
 
 
-def test_rate_limited_keeps_committed_pages(db_file):  # RF1
+def test_rate_limited_keeps_committed_pages(db_file):
     client = FakeSearchClient(lambda days: 350, fail_on=("pushed:2026-11-01..2026-11-01", 3))
     c1 = connect(db_file)
     with pytest.raises(RateLimited):
@@ -195,7 +197,7 @@ def test_new_repo_event_only_on_first_sighting(conn):
     assert json.loads(conn.execute("SELECT query_keys_json FROM domain_repos").fetchone()[0]) == ["q1", "q2"]
 
 
-def test_first_scan_is_silent_baseline(conn):  # RF8
+def test_first_scan_is_silent_baseline(conn):
     run(FakeSearchClient(lambda days: 5), conn, window(1), emit_new=False)
     assert count(conn, "repos") == 5 and count(conn, "domain_repos") == 5
     assert count(conn, "events") == 0

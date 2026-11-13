@@ -4,7 +4,7 @@
 
 Goal of the milestone: accepted repos get semantic embeddings (local Ollama), stored in SQLite with model tags; nearest-neighbour search works with sqlite-vec or the numpy fallback. Phase 2's landscape map reads these vectors.
 
-Research: [storage-embeddings](../../research/storage-embeddings.md) · ADR: [ADR-002](../../spec/decisions.md#adr-002-sqlite--sqlite-vec-with-numpy-fallback) · Spike results: `wiki/spikes/T02-sqlite-vec.md`, `wiki/spikes/T04-ollama.md`
+Research: [storage-embeddings](../../../research/storage-embeddings.md) · ADR: [ADR-002](../../../spec/decisions.md#adr-002-sqlite--sqlite-vec-with-numpy-fallback) · Spike results: `wiki/spikes/T02-sqlite-vec.md`, `wiki/spikes/T04-ollama.md`
 
 ---
 

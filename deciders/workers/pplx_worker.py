@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """perplexity-ai/pplx-decider-flash-v1.2 worker: reads requests.json, writes out.json.
 
-Run from repka/triage.py inside .venv-pplx (Python 3.12, transformers==5.17.0, as in model requirements.txt).
+Run by repka (src/repka/triage/deciders.py) inside .venv-pplx (Python 3.12, transformers==5.17.0, as in model requirements.txt).
 requests.json / out.json format — same as d1_worker.py.
 
 Notes:
@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -37,6 +38,10 @@ def main() -> None:
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args()
     cfg = json.loads(args.config)
+    revision = cfg.get("revision")
+    if not (isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision)):
+        # the model repository's code runs here (trust_remote_code / source/): never from a moving branch
+        sys.exit(f"revision must be a full 40-character commit hash, got {revision!r}")
 
     if not cfg.get("online"):
         os.environ["HF_HUB_OFFLINE"] = "1"
@@ -60,7 +65,9 @@ def main() -> None:
     if not (checkpoint / "readout.safetensors").exists() or not list(checkpoint.glob("model-*.safetensors")):
         sys.exit(f"No weights in {checkpoint}. Run: ./setup.sh --download pplx-flash")
     sys.path.insert(0, str(checkpoint / "source" / "src"))
-    from pplx_decider import Decider  # code from model repository (revision pinned in models.yaml)
+    from pplx_decider import (
+        Decider,  # code from model repository (revision pinned in models.yaml)
+    )
 
     device = cfg.get("device", "auto")
     if device == "auto":

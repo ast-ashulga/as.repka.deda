@@ -1,19 +1,24 @@
 import json
 import shutil
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from repka.cli import main
-from repka.config import ConfigError, CollectConfig
-from repka.domain.matrix import MAX_OPERATORS, MAX_QUERY_CHARS, build_queries, scan_window
+from repka.config import CollectConfig, ConfigError
+from repka.domain.matrix import (
+    MAX_OPERATORS,
+    MAX_QUERY_CHARS,
+    build_queries,
+    scan_window,
+)
 from repka.domain.schema import Domain, load_domain
 
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO / "domains" / "example-mcp.yaml"
-NOW = datetime(2026, 11, 7, 8, 30, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 7, 8, 30, tzinfo=UTC)
 DATE_RESERVE = 30  # chars the collector adds for its date qualifier
 
 
@@ -30,7 +35,7 @@ def operators(q: str) -> int:
     return q.count(" OR ") + q.count(" NOT ")
 
 
-def test_fork_policy_qualifier():  # RF6
+def test_fork_policy_qualifier():
     assert "fork:" not in queries(fork_policy="exclude")[0].q
     assert "fork:true" in queries(fork_policy="include")[0].q
     assert "fork:only" in queries(fork_policy="only")[0].q
@@ -102,7 +107,7 @@ def test_keys_stable_and_unique():
     assert all(len(q.key) == 12 for q in first)
 
 
-def test_window_first_scan_uses_pushed():  # RF8
+def test_window_first_scan_uses_pushed():
     w = scan_window(None, NOW, CollectConfig())
     assert (w.field, w.start) == ("pushed", (NOW - timedelta(days=365)).date())
     assert w.end == NOW.date()

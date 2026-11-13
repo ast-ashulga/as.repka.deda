@@ -7,7 +7,13 @@ import pytest
 
 from repka import config, pipeline, preflight
 from repka.cli import main
-from repka.config import AppConfig, DigestConfig, EmbedConfig, NotifyConfig, TriageConfig
+from repka.config import (
+    AppConfig,
+    DigestConfig,
+    EmbedConfig,
+    NotifyConfig,
+    TriageConfig,
+)
 from repka.github.client import AuthError, AuthInfo, GitHubError
 
 NOW = datetime(2026, 11, 8, 8, 0, 0, tzinfo=UTC)
@@ -80,7 +86,7 @@ def test_no_github_token_is_error_with_fix(home):
 
 
 @pytest.mark.parametrize("source", ["env", "gh"])
-def test_rejected_token_is_error_with_fix(home, monkeypatch, source):  # RF10
+def test_rejected_token_is_error_with_fix(home, monkeypatch, source):
     if source == "env":
         write_token(home)
     else:
@@ -98,7 +104,7 @@ def test_rejected_token_is_error_with_fix(home, monkeypatch, source):  # RF10
     assert any("expired, revoked or invalid" in f.title for f in errors)
 
 
-def test_token_expiring_soon_is_warning(home):  # RF10
+def test_token_expiring_soon_is_warning(home):
     write_token(home)
     soon = NOW + timedelta(days=3)
     auth = by_id(preflight.diagnose(AppConfig(), send=False, auth_probe=probe_returning(soon), now=NOW), "github-auth")
@@ -248,7 +254,7 @@ def test_run_stops_on_errors_before_lock(home, monkeypatch, capsys):
     assert not (home / ".state").exists()  # no lock file, no database
 
 
-def test_run_stops_on_rejected_token_before_any_search(home, monkeypatch, capsys):  # RF10
+def test_run_stops_on_rejected_token_before_any_search(home, monkeypatch, capsys):
     write_token(home)
     write_domain(home)
     monkeypatch.setattr(preflight, "live_auth_probe", probe_raising(AuthError("401")))
@@ -268,3 +274,46 @@ def test_embed_model_checked_against_ollama_tags(home, monkeypatch):
     missing = model_check(lambda: ["llama3:8b"])
     assert missing.status == "warn" and "ollama pull nomic-embed-text" in missing.fix
     assert model_check(probe_raising(httpx.ConnectError("down"))).status == "warn"
+
+
+def _digests_db(home, *rows):
+    from repka.store.db import connect, migrate
+
+    conn = connect()
+    migrate(conn)
+    for slot, status in rows:
+        conn.execute("INSERT INTO digests (slot, local_date, status) VALUES (?, '2026-11-08', ?)", (slot, status))
+    conn.commit()
+    conn.close()
+
+
+def test_digest_claims_check_is_silent_without_a_database(home):
+    assert preflight.check_digest_claims(config.db_path()) == []
+
+
+def test_digest_claims_check_warns_about_sending_and_unknown_rows(home):
+    _digests_db(home, ("08:30", "sent"), ("19:30", "unknown"), ("releases@09:00", "sending"))
+    results = preflight.check_digest_claims(config.db_path())
+    assert [r.status for r in results] == ["warn", "warn"]
+    assert "19:30" in results[0].title and "2026-11-08" in results[0].title and "'unknown'" in results[0].title
+    assert "releases@09:00" in results[1].title and "'sending'" in results[1].title
+    assert "DELETE FROM digests WHERE id = 2" in results[0].fix and "Telegram" in results[0].fix
+
+
+def test_digest_claims_check_ok_when_nothing_is_stuck(home):
+    _digests_db(home, ("08:30", "sent"))
+    assert [r.status for r in preflight.check_digest_claims(config.db_path())] == ["ok"]
+
+
+def test_doctor_shows_a_stuck_claim_as_a_warning_without_failing(home, monkeypatch, capsys):
+    write_token(home)
+    write_domain(home)
+    monkeypatch.setattr(preflight, "live_auth_probe", probe_returning())
+    _digests_db(home, ("19:30", "unknown"))
+    assert main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "warn   digest-claims" in out and "19:30" in out and "DELETE FROM digests" in out
+    assert main(["doctor", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["errors"] == 0 and payload["warnings"] == 3
+    assert next(c for c in payload["checks"] if c["id"] == "digest-claims")["status"] == "warn"

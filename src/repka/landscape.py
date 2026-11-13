@@ -1,4 +1,4 @@
-"""Landscape map maths (P2-T03): 2-D projection, clustering and cluster labels. Pure: numpy in, numpy out.
+"""Landscape map maths: 2-D projection, clustering and cluster labels. Pure: numpy in, numpy out.
 
 No streamlit and no SQLite here; `dashboard_data` loads vectors and caches the result. Needs the
 `dashboard` dependency group (umap-learn, scikit-learn, pandas).

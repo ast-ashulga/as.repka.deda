@@ -5,12 +5,15 @@ from pathlib import Path
 
 import pytest
 
+from repka import config as config_module
 from repka.config import (
     ConfigError,
     github_token,
     github_token_source,
+    load_collect,
     load_config,
     load_digest,
+    load_embed,
     parse_duration,
     project_root,
     worker_env,
@@ -53,6 +56,22 @@ def test_project_root_env_override(home):
     assert project_root() == home
 
 
+def test_project_root_is_the_checkout_without_override(monkeypatch):
+    monkeypatch.delenv("REPKA_HOME", raising=False)
+    assert project_root() == REPO_ROOT
+
+
+def test_project_root_outside_a_checkout_is_a_clear_error(monkeypatch, tmp_path):
+    # a non-editable install: the package sits in <prefix>/lib/pythonX/site-packages/repka, no pyproject.toml above it
+    fake = tmp_path / "lib" / "site-packages" / "repka" / "config.py"
+    fake.parent.mkdir(parents=True)
+    fake.write_text("")
+    monkeypatch.delenv("REPKA_HOME", raising=False)
+    monkeypatch.setattr(config_module, "__file__", str(fake))
+    with pytest.raises(ConfigError, match="REPKA_HOME"):
+        project_root()
+
+
 def test_worker_env_has_no_secrets(monkeypatch):
     secrets = {"REPKA_GITHUB_TOKEN": "ghp_secret", "REPKA_TG_API_ID": "12345", "REPKA_TG_API_HASH": "hashsecret"}
     for key, value in secrets.items():
@@ -64,6 +83,59 @@ def test_worker_env_has_no_secrets(monkeypatch):
 
 def test_tracked_config_is_valid():
     load_config(REPO_ROOT / ".config.yaml")
+
+
+def test_tracked_config_equals_the_code_defaults():
+    """The shipped .config.yaml says its values are the defaults: every boolean false, every value equal."""
+    tracked = load_config(REPO_ROOT / ".config.yaml")
+    defaults = load_config(REPO_ROOT / "does-not-exist.yaml")
+    for section in dataclasses.fields(defaults):
+        got, want = getattr(tracked, section.name), getattr(defaults, section.name)
+        for f in dataclasses.fields(want):
+            value = getattr(got, f.name)
+            if isinstance(value, bool):
+                assert value is False, f"{section.name}.{f.name} must be false in the tracked .config.yaml"
+            assert value == getattr(want, f.name), f"{section.name}.{f.name} differs from the code default"
+    assert tracked == defaults
+
+
+def test_digest_slots_are_validated():
+    assert load_digest({"slots": ["06:00", "18:45"]}).slots == ["06:00", "18:45"]
+    for bad in (["9am"], ["25:00"], ["9:00"], [900], "09:00"):
+        with pytest.raises(ConfigError, match=r"digest\.slots"):
+            load_digest({"slots": bad})
+
+
+def test_accepted_refresh_every_accepts_zero():
+    assert load_collect({"accepted_refresh_every": "0s"}).accepted_refresh_every == timedelta(0)
+    for zero in (0, "0", "0s", " 0s "):
+        assert load_collect({"accepted_refresh_every": zero}).accepted_refresh_every == timedelta(0)
+    for bad in (False, 0.0, "0m", "-1h", 5):
+        with pytest.raises(ConfigError, match="collect.accepted_refresh_every"):
+            load_collect({"accepted_refresh_every": bad})
+    with pytest.raises(ConfigError, match="slow_metrics_every"):  # zero stays invalid for the other durations
+        load_collect({"slow_metrics_every": 0})
+    assert load_collect({"accepted_refresh_every": "20h"}).accepted_refresh_every == timedelta(hours=20)
+    with pytest.raises(ConfigError, match="collect.first_window"):
+        load_collect({"first_window": "0s"})
+
+
+@pytest.mark.parametrize("url", ["http://localhost:11434", "http://127.0.0.1:11434/", "http://[::1]:11434"])
+def test_embed_url_loopback_is_accepted(url):
+    assert load_embed({"url": url}).url == url
+
+
+@pytest.mark.parametrize("url", ["http://example.com:11434", "http://192.168.1.5:11434", "http://0.0.0.0:11434", "localhost:11434", "ftp://localhost"])
+def test_embed_url_elsewhere_is_rejected(url):
+    with pytest.raises(ConfigError, match="embed.url"):
+        load_embed({"url": url})
+
+
+def test_worker_env_passes_both_hf_cache_variables(monkeypatch):
+    monkeypatch.setenv("HF_HUB_CACHE", "/a")
+    monkeypatch.setenv("HUGGINGFACE_HUB_CACHE", "/b")
+    env = worker_env()
+    assert env["HF_HUB_CACHE"] == "/a" and env["HUGGINGFACE_HUB_CACHE"] == "/b"
 
 
 def test_github_token_from_env_wins(home, monkeypatch):
@@ -135,3 +207,14 @@ def test_digest_bad_values_name_the_key(raw, message):
         load_digest(raw)
     assert message in str(exc.value)
     assert "unknown config key" not in str(exc.value)
+
+
+def test_shipped_domains_never_run_by_accident():
+    """A fresh clone must not scan anything: every shipped domain file is valid and disabled."""
+    from repka.domain.schema import load_domain, load_domains
+
+    assert not [d.id for d in load_domains(REPO_ROOT / "domains") if d.enabled]
+    examples = sorted((REPO_ROOT / "domains" / "examples").glob("*.yaml"))
+    assert examples
+    for path in examples:
+        assert load_domain(path).enabled is False, path.name

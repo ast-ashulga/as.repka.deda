@@ -1,4 +1,4 @@
-"""Derived metrics (research storage-embeddings § 4): star deltas and commit/release velocity."""
+"""Derived metrics: star deltas and commit/release velocity."""
 
 from __future__ import annotations
 

@@ -81,7 +81,7 @@ try:
     domains = load_domains()
     model = load_config().embed.model
 except ConfigError as exc:
-    st.error(f"Configuration is invalid: {exc}")
+    st.error(f"Configuration is invalid: {printable(str(exc))}")
     st.stop()
 if not domains:
     st.info("No domains yet. Add one with `repka domain new`.")
@@ -112,7 +112,7 @@ try:
     with closing(connect(readonly=True)) as conn:
         frame, status = data.landscape_frame(conn, domain.id, model)
 except sqlite3.Error as exc:
-    st.error(f"Could not read the database (run `repka db migrate`?): {exc}")
+    st.error(f"Could not read the database (run `repka db migrate`?): {printable(str(exc))}")
     st.stop()
 
 if status == "no_embeddings":

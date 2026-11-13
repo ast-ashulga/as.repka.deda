@@ -12,8 +12,10 @@ import time
 from datetime import UTC, datetime
 
 from repka import pipeline, preflight
+from repka.cliutil import stderr_progress
 from repka.collect_cli import domain_line
 from repka.config import ConfigError, domains_dir, load_config, state_dir
+from repka.digest.run import failure_note
 from repka.domain.schema import Domain, get_domain, load_domains
 from repka.pipeline import PassReport
 from repka.progress import RunProgress
@@ -37,10 +39,6 @@ ETA on a terminal, lines = timestamped lines for logs, jsonl = one JSON event pe
 configuration error. Only one run at a time: a second one exits 0 immediately. Every run is recorded in `runs`
 (see `repka db stats`).
 """
-
-
-def _progress(message: str) -> None:
-    print(message, file=sys.stderr, flush=True)
 
 
 def _make_progress(conn, mode: str, run_id: int):
@@ -89,7 +87,7 @@ def _digest_line(report: PassReport) -> str:
         "empty": f"digest   {where}: nothing to send" if report.send else f"digest   {where}: nothing pending",
         "preview": f"digest   {where}: preview of {d.item_count} item(s) in {len(d.parts)} message(s), not sent",
         "sent": f"digest   {where}: sent {d.item_count} item(s) in {len(d.parts)} message(s)",
-        "failed": f"digest   {where}: send failed, slot stays open for the next run",
+        "failed": f"digest   {where}: send failed, {failure_note(d)}",
     }[d.status]
 
 
@@ -103,7 +101,7 @@ def _releases_line(report: PassReport) -> str:
         "empty": f"releases {where}: nothing to send" if report.send else f"releases {where}: nothing pending",
         "preview": f"releases {where}: preview of {r.item_count} item(s) in {len(r.parts)} message(s), not sent",
         "sent": f"releases {where}: sent {r.item_count} item(s) in {len(r.parts)} message(s)",
-        "failed": f"releases {where}: send failed, slot stays open for the next run",
+        "failed": f"releases {where}: send failed, {failure_note(r)}",
     }[r.status]
 
 
@@ -186,7 +184,7 @@ def _run_locked(args: argparse.Namespace, cfg, domains: list[Domain], now: datet
         started = time.monotonic()
         mode = args.progress or cfg.run.progress
         progress, renderer = _make_progress(conn, mode, run_id)
-        legacy = _progress if renderer is None else None  # `plain` keeps today's lines; the others use events
+        legacy = stderr_progress if renderer is None else None  # `plain` keeps today's lines; the others use events
         with activate(renderer):
             stderr_line(f"run #{run_id}: {len(domains)} domain(s), send={'yes' if send else 'no'}")
             try:

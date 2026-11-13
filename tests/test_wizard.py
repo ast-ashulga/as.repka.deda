@@ -1,11 +1,11 @@
 import io
 import sys
 
+from repka.cli import main
 from repka.config import domains_dir
 from repka.domain.matrix import build_queries
 from repka.domain.schema import load_domain, save_domain
 from repka.domain.wizard import run_wizard
-from repka.cli import main
 
 DESCRIPTION = "MCP servers, clients and SDKs."
 

@@ -1,11 +1,12 @@
 """Paths, strict `.config.yaml` loading, `.env` secrets and subprocess environments.
 
-Every key is optional and defaults to architecture § 3.2; every boolean defaults to False.
+Every key is optional and has a default (see wiki/spec/architecture.md, section 3); every boolean defaults to False.
 Unknown keys and wrong types raise ConfigError naming the dotted key path.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import subprocess
@@ -15,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, TypeVar
+from urllib.parse import urlsplit
 
 import yaml
 from dotenv import dotenv_values
@@ -25,11 +27,24 @@ class ConfigError(ValueError):
 
 
 def project_root() -> Path:
-    """The repka home: $REPKA_HOME if set, otherwise the checkout that contains src/."""
+    """The repka home: $REPKA_HOME if set, otherwise the source checkout this package runs from.
+
+    The checkout is found as the directory two levels above this package (`<checkout>/src/repka/config.py`),
+    which holds for a clone and for `uv sync` / `pip install -e .`. A regular (non-editable) install puts the
+    package in site-packages, where that guess points at the wrong place, so a missing `pyproject.toml` there
+    is a ConfigError telling the user to set REPKA_HOME instead of silently writing state into the interpreter's
+    library directory.
+    """
     override = os.environ.get("REPKA_HOME")
     if override:
         return Path(override).expanduser().absolute()
-    return Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[2]
+    if not (root / "pyproject.toml").is_file():
+        raise ConfigError(
+            f"cannot find the repka checkout (looked in {root}; a non-editable install has none); "
+            "set REPKA_HOME to the directory holding .config.yaml, domains/ and .state/, or install with `pip install -e .`"
+        )
+    return root
 
 
 def state_dir() -> Path:
@@ -79,7 +94,7 @@ class CollectConfig:
     enrich_batch: int = 50  # GraphQL nodes per query
     slow_metrics_every: timedelta = timedelta(days=7)  # contributors + participation refresh period
     # an accepted repo that the scan's search did not match is re-snapshotted only when its latest snapshot is at least
-    # this old; 0 = every scan (no throttling)
+    # this old; 0s (the default) = every scan, no throttling. Written `0s` in .config.yaml; other durations use m, h or d
     accepted_refresh_every: timedelta = timedelta(0)
 
 
@@ -111,7 +126,7 @@ class DigestConfig:
     max_items_per_domain: int = 10
     new_max_age: timedelta = timedelta(days=90)  # a first-seen repo created within this age is "new"
     star_spike_min_delta: int = 50  # stars_delta_1d threshold for the "top movers" section
-    insights: bool = False  # digest insights section (off until the feature ships)
+    insights: bool = False  # digest insights section (needs releases_message and a triage model)
     releases_message: bool = False  # separate releases message at releases_slot
     releases_slot: str = "09:00"  # local time HH:MM for the releases message
     facet_min_p: float = 0.7  # minimum probability for a facet to be shown in insights
@@ -121,7 +136,7 @@ class DigestConfig:
 @dataclass(frozen=True)
 class NotifyConfig:
     enabled: bool = False
-    backend: str = "telegram_user"  # own account via fast-mcp-telegram (ADR-005)
+    backend: str = "telegram_user"  # own account via fast-mcp-telegram
     chat_id: str = "me"  # "me" = Saved Messages; or numeric id / @username
     topic_id: int | None = None
 
@@ -190,6 +205,44 @@ def _slot(key: str, value: Any) -> str:
     except ValueError:
         raise ConfigError(f"{key} must be a local time HH:MM (got {value!r})") from None
     return value
+
+
+def _slots(key: str, value: Any) -> list[str]:
+    """A list of local times of day, each HH:MM, so a typo fails at load and not when the digest is due."""
+    return [_slot(f"{key}[{i}]", v) for i, v in enumerate(_str_list(key, value))]
+
+
+def _loopback_url(key: str, value: Any) -> str:
+    """An http(s) URL whose host is this machine: embedding sends repo text, which must not leave it."""
+    url = _str(key, value)
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        parts.port  # noqa: B018 - raises ValueError on a bad port
+    except ValueError:
+        raise ConfigError(f"{key} is not a valid URL (got {value!r})") from None
+    if parts.scheme not in ("http", "https") or not host:
+        raise ConfigError(f"{key} must be an http(s) URL such as http://localhost:11434 (got {value!r})")
+    try:
+        loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = False
+    if not loopback:
+        raise ConfigError(
+            f"{key} must point at this machine (localhost or a loopback address): "
+            f"embedding sends repo text to that server (got {value!r})"
+        )
+    return url
+
+
+def _duration_or_zero(key: str, value: Any) -> timedelta:
+    """Like `_duration`, but zero is allowed and means no throttling: a bare YAML `0` (int, not a bool) or
+    the strings "0" and "0s". Only `collect.accepted_refresh_every` uses it; other durations reject zero."""
+    if type(value) is int and value == 0:
+        return timedelta(0)
+    if isinstance(value, str) and value.strip() in ("0", "0s"):
+        return timedelta(0)
+    return _duration(key, value)
 
 
 def _probability(key: str, value: Any) -> float:
@@ -264,7 +317,7 @@ def load_collect(raw: Any) -> CollectConfig:
             "max_repos_per_domain_scan": _int,
             "enrich_batch": _int,
             "slow_metrics_every": _duration,
-            "accepted_refresh_every": _duration,
+            "accepted_refresh_every": _duration_or_zero,
         },
     )
 
@@ -292,7 +345,7 @@ def load_embed(raw: Any) -> EmbedConfig:
         "embed",
         raw,
         EmbedConfig,
-        {"enabled": _bool, "backend": _str, "model": _str, "url": _str, "batch": _int},
+        {"enabled": _bool, "backend": _str, "model": _str, "url": _loopback_url, "batch": _int},
     )
 
 
@@ -302,7 +355,7 @@ def load_digest(raw: Any) -> DigestConfig:
         raw,
         DigestConfig,
         {
-            "slots": _str_list,
+            "slots": _slots,
             "max_lateness": _duration,
             "max_items_per_domain": _int,
             "new_max_age": _duration,
@@ -404,7 +457,7 @@ def github_token_source() -> Literal["env", "gh"]:
     return "env" if _env_token() else "gh"
 
 
-_WORKER_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "HF_HOME", "HF_HUB_CACHE")
+_WORKER_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE")
 
 
 def worker_env() -> dict[str, str]:

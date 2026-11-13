@@ -1,15 +1,18 @@
 """Collect pipeline stage: search + enrich every due domain, with the scan bookkeeping.
 
 Scan state, in one place:
-- `domains.last_scan_at` only advances when a scan finished completely (status `ok`). A `partial` scan
-  (rate limit, error, `max_repos_per_domain_scan` reached) records the status and leaves `last_scan_at`
-  alone, so "last_scan_at is set" means "a complete baseline exists". An interrupted first scan therefore
-  stays a silent baseline (RF8) until one scan completes.
+- `domains.last_scan_at` advances when every search slice of the scan finished: status `ok`, or `partial` because
+  some repos were skipped by enrichment (their GraphQL node kept failing). Skipped repos have no snapshot, so
+  the next run enriches them again; holding the baseline back for them would keep a domain with one
+  permanently failing repo in "first scan" mode for ever. A scan cut short (rate limit, error,
+  `max_repos_per_domain_scan` reached) records `partial` and leaves `last_scan_at` alone, so "last_scan_at is
+  set" means "every search slice finished". An interrupted first scan therefore stays a silent baseline
+  until one scan completes.
 - An unfinished scan keeps its window (stored with the cursor rows) until it completes: slice keys contain the
   window's dates, so a scan needing more than one UTC day could never finish if the window moved daily.
   A scan that finished on a stored window older than today records that window's end as `last_scan_at`, so
   the next window starts early enough to cover the days that passed meanwhile.
-- `search_cursor` rows exist only for an unfinished scan: they let the next run skip finished slices (RF1)
+- `search_cursor` rows exist only for an unfinished scan: they let the next run skip finished slices
   and are deleted when a scan completes, so a rerun on the same day really searches again.
 """
 
@@ -30,6 +33,7 @@ from repka.github.enrich import EnrichStats, enrich_repos
 from repka.github.search import QueryStats, collect_search
 from repka.progress import NullReporter, Reporter
 from repka.store import repo
+from repka.store.db import iso, parse_iso
 from repka.store.repo import DomainState
 
 log = logging.getLogger(__name__)
@@ -44,6 +48,7 @@ class DomainReport:
     search: QueryStats = field(default_factory=QueryStats)
     enrich: EnrichStats = field(default_factory=EnrichStats)
     error: str | None = None
+    github_error: bool = False  # the domain stopped on a GitHub error other than a rate limit
 
 
 @dataclass
@@ -51,14 +56,6 @@ class CollectReport:
     domains: list[DomainReport] = field(default_factory=list)
     rate_limited: bool = False
     retry_at: float | None = None  # wall-clock epoch (time.time scale) from GitHub, when it said
-
-
-def iso(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def parse_iso(value: str | None) -> datetime | None:
-    return None if value is None else datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def next_due(d: Domain, state: DomainState | None) -> datetime | None:
@@ -210,7 +207,7 @@ def collect_domains(
 ) -> CollectReport:
     """Search then enrich each domain (the caller decides which are due), using ONE `now` for the run.
 
-    `RateLimited` marks the domain `partial`, the rest `skipped`, and returns normally (RF1: data kept).
+    `RateLimited` marks the domain `partial`, the rest `skipped`, and returns normally; data already collected is kept.
     Any other `GitHubError` marks that domain `partial` (error recorded) and the next domain still runs.
     `AuthError` propagates untouched. `all_domains` (default: `domains`) tells enrichment which domains track which
     key files, since a repo can be shared with a domain that is not due.
@@ -235,7 +232,9 @@ def collect_domains(
             log.warning("%s: %s", d.id, domain_report.error)
         except GitHubError as exc:  # this domain only: partial, the other domains still run (AuthError aborts)
             _record_partial(conn, d, repo.get_domain_state(conn, d.id))
-            domain_report = DomainReport(d.id, "partial", search_so_far, error=f"GitHub error: {exc}")
+            domain_report = DomainReport(
+                d.id, "partial", search_so_far, error=f"GitHub error: {exc}", github_error=True
+            )
             log.warning("%s: %s", d.id, domain_report.error)
         report.domains.append(domain_report)
     return report

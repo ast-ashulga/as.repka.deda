@@ -1,9 +1,8 @@
 # repka configuration reference
 
 `.config.yaml` is the source of truth: read the actual file for the current values. The "Default" column below
-is the default built into the code; the tracked `.config.yaml` overrides some of them (on this machine it
-sets `first_window: 90d`, `enrich_batch: 50`, `accepted_refresh_every: 20h`, a single digest slot `09:00`,
-`run.progress: live`, and has `triage.enabled`, `embed.enabled`, `notify.enabled` and `run.send` already `true`).
+is the default built into the code; the `.config.yaml` that ships with the repo lists exactly those defaults, and the
+user's own edits override them.
 Every key is optional, unknown keys and wrong types are rejected at startup with the dotted key name, and every
 boolean flag defaults to `false` in the code.
 Full list with comments: `wiki/spec/architecture.md` section 3.
@@ -29,7 +28,7 @@ Full list with comments: `wiki/spec/architecture.md` section 3.
 | `triage.readme_chars` | 4000 | README characters given to the model; also the most that is cached (the HTTP cache stores the README truncated to this) and what `db prune` cuts old cached bodies to |
 | `triage.thresholds` | `{relevant: 0.70, substance: 2}` | a repo is accepted when every threshold passes; higher = stricter |
 | `embed.enabled` | false | embed accepted repos during `repka run` (needs Ollama) |
-| `embed.model` / `embed.url` | nomic-embed-text / http://localhost:11434 | Ollama model and endpoint |
+| `embed.model` / `embed.url` | nomic-embed-text / http://localhost:11434 | Ollama model and endpoint; `embed.url` must be a loopback address (localhost, 127.0.0.1, ::1) |
 | `digest.slots` | `["08:30", "19:30"]` | local times at which a digest is due |
 | `digest.max_lateness` | 6h | a slot older than this is skipped, not sent late |
 | `digest.max_items_per_domain` | 10 | digest size per domain |
@@ -62,7 +61,7 @@ The two delivery switches are independent on purpose: `notify.enabled` permits s
 
 ## Domain file (`domains/<id>.yaml`)
 
-Only domains with `enabled: true` are collected. `domains/example-mcp.yaml` is a complete, disabled example.
+Only domains with `enabled: true` are collected. `domains/example-mcp.yaml` is a complete, disabled example; `domains/examples/` holds two more (never loaded from there).
 
 | Field | Meaning |
 |---|---|
@@ -75,7 +74,7 @@ Only domains with `enabled: true` are collected. `domains/example-mcp.yaml` is a
 | `search.topics` | `topic:<t>` queries |
 | `search.languages` | `[]` = any |
 | `search.exclude` | each word becomes `NOT <word>` (at most 5 operators per query) |
-| `search.min_stars` | the main lever on data volume (`domains/mcp.yaml` uses 300). `repka db prune` removes repos whose latest snapshot is below it. Keep it tight for a first run |
+| `search.min_stars` | the main lever on data volume (`domains/examples/mcp.yaml` uses 300). `repka db prune` removes repos whose latest snapshot is below it. Keep it tight for a first run |
 | `search.in` | `name`, `description`, `readme` (`name` with a phrase finds nothing) |
 | `search.fork_policy` | `exclude` (default), `include`, `only` |
 | `key_files` | files fetched for dependency tracking, e.g. `pyproject.toml`, `package.json` |

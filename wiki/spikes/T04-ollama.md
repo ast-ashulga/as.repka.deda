@@ -1,6 +1,6 @@
 # Spike T04: Ollama embedder returns vectors
 
-[← Wiki home](../README.md) · [ROADMAP](../plans/ROADMAP.md) · Issue [#4](https://github.com/ast-ashulga/as.repka.deda/issues/4) · Script: `scripts/spike_ollama.py`
+[← Wiki home](../README.md) · Script: a throwaway script, since removed
 
 **Verdict: GO.** Use Ollama `nomic-embed-text` at `http://localhost:11434/api/embed`, dimension **768**, float32. Task prefixes are not required (see below).
 
@@ -47,7 +47,7 @@ Related pair: two texts about Model Context Protocol clients/servers. Unrelated:
 | no prefix | 0.8906 | 0.4462 | yes |
 | `search_query:` / `search_document:` prefixes | 0.8467 | 0.4775 | yes |
 
-The sanity check passes with and without the prefixes. The no-prefix margin is larger on this two-pair sample (0.44 against 0.37). That is too small a sample to prove prefixes hurt, so the decision is recorded as "not required" rather than "forbidden". T18 starts with no prefix and may switch if retrieval quality looks poor.
+The sanity check passes with and without the prefixes. The no-prefix margin is larger on this two-pair sample (0.44 against 0.37). That is too small a sample to prove prefixes hurt, so the decision is recorded as "not required" rather than "forbidden". The embedder starts with no prefix and may switch if retrieval quality looks poor.
 
 ## Timing
 
@@ -61,9 +61,9 @@ Batch of 32 texts, each about 1,500 characters (wiki Markdown chunks, so offline
 
 Median 0.825 s per batch of 32, about **26 ms per text**. The model load on the first call is negligible (`load_duration` 0.7 ms, since it was already resident).
 
-## Consequences for later tasks
+## Consequences
 
-- `embed.model` = `nomic-embed-text`, `embed.url` = `http://localhost:11434`, `embed.batch` = 32 are confirmed. The architecture defaults (§ 3.2) are unchanged.
-- The vector dimension is 768. `embeddings.dim` stores it, and `vec0` (if T02 is GO) must be created with `float[768]`.
-- T18 calls `/api/embed` with a list `input`. It does not use the legacy `/api/embeddings` endpoint.
+- `embed.model` = `nomic-embed-text`, `embed.url` = `http://localhost:11434`, `embed.batch` = 32 are confirmed. The architecture defaults (section 3.2) are unchanged.
+- The vector dimension is 768. `embeddings.dim` stores it, and a `vec0` index (if one is ever used, see [T02](T02-sqlite-vec.md)) must be created with `float[768]`.
+- The embedder calls `/api/embed` with a list `input`. It does not use the legacy `/api/embeddings` endpoint.
 - No fallback (MLX embedding worker) is needed.

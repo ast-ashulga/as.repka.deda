@@ -8,9 +8,9 @@ import pytest
 pytest.importorskip("pandas")
 pytest.importorskip("streamlit")
 
+from helpers_digest import make_db  # noqa: E402
 from streamlit.testing.v1 import AppTest  # noqa: E402
 
-from helpers_digest import make_db  # noqa: E402
 from repka.config import db_path  # noqa: E402
 from repka.domain.schema import load_domain  # noqa: E402
 

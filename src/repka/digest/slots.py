@@ -1,4 +1,4 @@
-"""Which digest slot is due: coalescing of missed slots and a lateness limit (architecture § 5.5, RF5)."""
+"""Which digest slot is due: coalescing of missed slots and a lateness limit (`digest.max_lateness`)."""
 
 from __future__ import annotations
 
@@ -16,10 +16,18 @@ class SlotDecision:
 
 
 def parse_slot(slot: str) -> time:
+    """Parse an HH:MM slot given on the command line. Lenient: `8:30` is accepted here, while config.py
+    (`digest.slots`, `digest.releases_slot`) requires the zero-padded `08:30` form and rejects the rest at load."""
     try:
         return datetime.strptime(slot, "%H:%M").time()
     except (ValueError, TypeError):
         raise ConfigError(f"bad slot {slot!r}: use HH:MM, 24-hour local time (e.g. 08:30)") from None
+
+
+def normalize_slot(slot: str) -> str:
+    """The zero-padded `HH:MM` form (`8:30` -> `08:30`), the one config and the `digests` table use, so a forced
+    slot matches what is recorded."""
+    return parse_slot(slot).strftime("%H:%M")
 
 
 def decide_slot(

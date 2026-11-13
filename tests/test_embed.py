@@ -3,8 +3,8 @@ import json
 
 import httpx
 import pytest
-
 from helpers_digest import add_repo, add_verdict, make_db
+
 from repka import config
 from repka.cli import main
 from repka.domain.schema import Domain, SearchSpec
@@ -195,7 +195,7 @@ def test_embed_cli_reports_ollama_down(home, capsys, monkeypatch):
     conn.commit()
     conn.close()
     domain = Domain(id="d1", name="D", profile="p", search=SearchSpec((), (), (), ()))
-    monkeypatch.setattr(embed_cli, "_select_domains", lambda _id: [domain])
+    monkeypatch.setattr(embed_cli, "select_domains", lambda _id: [domain])
 
     def down(_request):
         raise httpx.ConnectError("refused", request=_request)

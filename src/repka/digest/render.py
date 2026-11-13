@@ -31,15 +31,16 @@ _LEGEND = {
 
 
 def slot_label(slot: str) -> str:
+    """Header word for a slot: "morning" before 12:00, "evening" from 12:00 on (there is no "afternoon")."""
     return "morning" if int(slot.split(":")[0]) < 12 else "evening"
 
 
-def _text(value: Any, limit: int | None = None) -> str:
+def safe_text(value: Any, limit: int | None = None) -> str:
     s = " ".join(printable(str(value)).split())
     return html_escape(truncate(s, limit) if limit else s)
 
 
-def _stars(n: int) -> str:
+def star_text(n: int) -> str:
     if n < 1000:
         return str(n)
     if n < 999_950:
@@ -47,12 +48,12 @@ def _stars(n: int) -> str:
     return f"{n / 1_000_000:.1f}".removesuffix(".0") + "M"
 
 
-def _link(item: DigestItem) -> str:
-    return f'<a href="{html_escape(printable(item.html_url))}">{_text(item.full_name)}</a>'
+def link_html(item: DigestItem) -> str:
+    return f'<a href="{html_escape(printable(item.html_url))}">{safe_text(item.full_name)}</a>'
 
 
 def _names(sign: str, names: list[Any]) -> str:
-    shown = [f"{sign}{_text(n, DEP_CHARS)}" for n in names[:MAX_DEPS_SHOWN]]
+    shown = [f"{sign}{safe_text(n, DEP_CHARS)}" for n in names[:MAX_DEPS_SHOWN]]
     if len(names) > MAX_DEPS_SHOWN:
         shown.append(f"{sign}…{len(names) - MAX_DEPS_SHOWN}")
     return " ".join(shown)
@@ -61,12 +62,12 @@ def _names(sign: str, names: list[Any]) -> str:
 def _repo_line(item: DigestItem) -> str:
     f = item.text_fields
     icon = "🆕" if item.line_kind == "new" else "🔎"
-    line = f"{icon} {_link(item)} ★{_stars(int(f.get('stars') or 0))}"
+    line = f"{icon} {link_html(item)} ★{star_text(int(f.get('stars') or 0))}"
     if f.get("description"):
-        line += f" — {_text(f['description'], DESC_CHARS)}"
+        line += f" — {safe_text(f['description'], DESC_CHARS)}"
     tags = []
     if f.get("kind"):
-        tags.append(_text(f["kind"]))
+        tags.append(safe_text(f["kind"]))
     if f.get("level") is not None:
         tags.append(f"lvl {int(f['level'])}")
     if item.line_kind == "found" and f.get("since"):
@@ -77,15 +78,15 @@ def _repo_line(item: DigestItem) -> str:
 
 
 def _release_line(item: DigestItem) -> str:
-    line = f"🚀 {_link(item)}"
+    line = f"🚀 {link_html(item)}"
     if item.text_fields.get("tag"):
-        line += f" <code>{_text(item.text_fields['tag'])}</code>"
+        line += f" <code>{safe_text(item.text_fields['tag'])}</code>"
     return line
 
 
 def _mover_line(item: DigestItem) -> str:
     f = item.text_fields
-    line = f"📈 {_link(item)} +{int(f['stars_delta_1d'])}★/24h"
+    line = f"📈 {link_html(item)} +{int(f['stars_delta_1d'])}★/24h"
     if f.get("velocity") is not None:
         line += f" · velocity {float(f['velocity']):g}"
     return line
@@ -95,34 +96,34 @@ def _stack_line(item: DigestItem) -> str:
     parts = []
     changes = item.text_fields.get("changes", [])
     for c in changes[:MAX_CHANGES_SHOWN]:
-        bits = [_text(c.get("path") or "", PATH_CHARS)]
+        bits = [safe_text(c.get("path") or "", PATH_CHARS)]
         for sign, names in (("+", c.get("added") or []), ("−", c.get("removed") or [])):
             if names:
                 bits.append(_names(sign, names))
         parts.append(" ".join(b for b in bits if b))
     if len(changes) > MAX_CHANGES_SHOWN:
         parts.append(f"…{len(changes) - MAX_CHANGES_SHOWN} more files")
-    return f"🧩 {_link(item)} {'; '.join(parts)}"
+    return f"🧩 {link_html(item)} {'; '.join(parts)}"
 
 
 def _insight_item(item: DigestItem) -> str:
     """A 🆕/🔎/📈 item as ONE list element of up to three lines (split_messages never cuts an element)."""
     f = item.text_fields
     icon = {"new": "🆕", "found": "🔎", "mover": "📈"}[item.line_kind]
-    head = f"{icon} {_link(item)} ★{_stars(int(f.get('stars') or 0))}"
+    head = f"{icon} {link_html(item)} ★{star_text(int(f.get('stars') or 0))}"
     if item.line_kind == "mover":
         head += f" <i>(+{int(f['stars_delta_1d'])}★/24h)</i>"
     out = [head]
     if f.get("description"):
-        out.append(f"<i>{_text(f['description'], DESC_CHARS)}</i>")
+        out.append(f"<i>{safe_text(f['description'], DESC_CHARS)}</i>")
     meta = []
     if f.get("kind"):
-        meta.append(_text(f["kind"], TAG_CHARS))
+        meta.append(safe_text(f["kind"], TAG_CHARS))
     if f.get("level") is not None:
         meta.append(f"lvl {int(f['level'])}")
     third = f"<code>{' · '.join(meta)}</code>" if meta else ""
     for facet_id, _p in f.get("facets") or []:
-        label = _text(str(facet_id).replace("_", " "), TAG_CHARS)
+        label = safe_text(str(facet_id).replace("_", " "), TAG_CHARS)
         if label:
             third += f" · {label}" if third else label
     if third:
@@ -152,9 +153,9 @@ def render_digest(d: Digest) -> list[str]:
     """Digest lines; empty when there is nothing to show."""
     if d.item_count == 0:
         return []
-    lines = [f"<b>repka</b> · {slot_label(d.slot)} digest · {_text(d.local_date)}"]
+    lines = [f"<b>repka</b> · {slot_label(d.slot)} digest · {safe_text(d.local_date)}"]
     for s in d.sections:
-        lines += ["", f"<b>{_text(s.domain_name)}</b>"]
+        lines += ["", f"<b>{safe_text(s.domain_name)}</b>"]
         if d.insights:
             lines += [_insight_item(i) for i in s.new_repos]
             lines += [_insight_item(i) for i in s.movers]
@@ -182,7 +183,8 @@ def split_messages(lines: list[str], limit: int = 4096) -> list[str]:
     """Pack lines into messages of at most `limit` characters.
 
     Rendered lines are bounded far below the limit; as a last resort a line longer than
-    `limit` loses its tags (so none is left open) and is cut at `limit` with an ellipsis.
+    `limit` loses its tags (so none is left open) and is cut at `limit` with an ellipsis. A domain header is kept
+    with its first item.
     """
     messages: list[str] = []
     current: list[str] = []
@@ -192,8 +194,14 @@ def split_messages(lines: list[str], limit: int = 4096) -> list[str]:
             line = _squash(line, limit)
         extra = len(line) + (1 if current else 0)
         if current and size + extra > limit:
+            carry: list[str] = []
+            # a domain header (a bold line after a blank one) never ends a message: it moves on with its first item
+            if len(current) >= 2 and current[-2] == "" and current[-1].startswith("<b>") and len(current[-1]) + 1 + len(line) <= limit:
+                carry = [current.pop()]
             messages.append("\n".join(current).strip("\n"))
-            current, size, extra = [], 0, len(line)
+            current = carry
+            size = len(carry[0]) if carry else 0
+            extra = len(line) + (1 if carry else 0)
         if not current and not line:  # no blank line at the start of a message
             continue
         current.append(line)

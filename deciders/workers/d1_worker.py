@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Liquid d1 worker (d1-2B, d1-3B): reads requests.json, writes out.json.
 
-Run from repka/triage.py inside .venv-liquid. Manually:
+Run by repka (src/repka/triage/deciders.py) inside .venv-liquid. Manually:
   .venv-liquid/bin/python workers/d1_worker.py --config '{"repo":"LiquidAI/d1-3B"}' \
       --requests requests.json --out out.json
 
@@ -35,6 +35,10 @@ def main() -> None:
     p.add_argument("--out", type=Path, required=True)
     args = p.parse_args()
     cfg = json.loads(args.config)
+    revision = cfg.get("revision")
+    if not (isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision)):
+        # the model repository's code runs here (trust_remote_code / source/): never from a moving branch
+        sys.exit(f"revision must be a full 40-character commit hash, got {revision!r}")
 
     if not cfg.get("online"):
         os.environ["HF_HUB_OFFLINE"] = "1"  # before importing transformers

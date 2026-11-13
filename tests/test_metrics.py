@@ -1,11 +1,12 @@
 import math
 from datetime import UTC, datetime, timedelta
 
+from helpers_digest import add_repo
+
 from repka.models import Snapshot
 from repka.store.db import connect, migrate
 from repka.store.metrics import repo_metrics, stars_delta, velocity
 from repka.store.repo import insert_snapshot
-from helpers_digest import add_repo
 
 NOW = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
 
@@ -28,7 +29,7 @@ def S(stars=100, taken_at=NOW, commits_30d=0, active_weeks_12=0, releases_90d=0,
     )
 
 
-def test_stars_delta_null_without_baseline():  # RF4
+def test_stars_delta_null_without_baseline():
     one_old = [S(stars=5000, taken_at=NOW - timedelta(days=40))]  # the only snapshot is also the latest
     for days in (1, 7, 30):
         assert stars_delta(one_old, NOW, days) is None

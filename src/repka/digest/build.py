@@ -1,4 +1,4 @@
-"""Digest selection: which events and star movers are shown, per domain (architecture § 5.5).
+"""Digest selection: which events and star movers are shown, per domain.
 
 Pure read: nothing is written. "Consumed" only means an event id is listed in
 `Digest.consumed_event_ids`; the sender stamps `events.digest_id` after a real send.
@@ -15,8 +15,9 @@ from typing import Any
 from repka.config import DigestConfig
 from repka.domain.schema import Domain
 from repka.models import DigestItem
+from repka.store.db import iso_or_none, parse_iso
 from repka.store.metrics import repo_metrics
-from repka.store.repo import _iso, _parse, latest_snapshot
+from repka.store.repo import latest_snapshot
 
 MOVER_REPEAT_WINDOW = timedelta(hours=24)
 BASE_QUESTIONS = frozenset({"relevant", "substance", "kind", "is_junk"})
@@ -75,7 +76,7 @@ class Digest:
 _Cand = tuple[tuple, DigestItem, list[int]]
 
 
-def _json(text: str | None) -> dict[str, Any]:
+def json_object(text: str | None) -> dict[str, Any]:
     try:
         value = json.loads(text) if text else {}
     except ValueError:
@@ -83,14 +84,14 @@ def _json(text: str | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _latest_verdicts(conn: sqlite3.Connection, domain_id: str) -> dict[int, tuple[bool, dict[str, Any]]]:
+def latest_verdicts(conn: sqlite3.Connection, domain_id: str) -> dict[int, tuple[bool, dict[str, Any]]]:
     """repo_id -> (accepted, answers) of the latest verdict for this domain."""
     out: dict[int, tuple[bool, dict[str, Any]]] = {}
     for r in conn.execute(
         "SELECT repo_id, accepted, answers_json FROM verdicts WHERE domain_id = ? ORDER BY decided_at, rowid",
         (domain_id,),
     ):
-        out[r["repo_id"]] = (bool(r["accepted"]), _json(r["answers_json"]))
+        out[r["repo_id"]] = (bool(r["accepted"]), json_object(r["answers_json"]))
     return out
 
 
@@ -115,12 +116,12 @@ def _recent_movers(conn: sqlite3.Connection, now: datetime) -> set[int]:
         SELECT DISTINCT di.repo_id FROM digest_items di JOIN digests d ON d.id = di.digest_id
         WHERE di.kind = 'mover' AND d.status = 'sent' AND d.sent_at >= ?
         """,
-        (_iso(now - MOVER_REPEAT_WINDOW),),
+        (iso_or_none(now - MOVER_REPEAT_WINDOW),),
     )
     return {r["repo_id"] for r in rows}
 
 
-def _stars(conn: sqlite3.Connection, repo_id: int) -> int:
+def current_stars(conn: sqlite3.Connection, repo_id: int) -> int:
     snap = latest_snapshot(conn, repo_id)
     return snap.stars if snap else 0
 
@@ -138,7 +139,7 @@ def _domain_section(
     shown: list[int],
     consumed: list[int],
 ) -> DigestSection | None:
-    verdicts = _latest_verdicts(conn, domain.id)
+    verdicts = latest_verdicts(conn, domain.id)
     events = conn.execute(
         """
         SELECT e.id, e.repo_id, e.kind, e.payload_json, e.detected_at, r.full_name, r.html_url, r.description, r.created_at
@@ -165,7 +166,7 @@ def _domain_section(
             consumed.append(ev["id"])
             continue
         if cfg.insights and ev["kind"] in PENDING_EVENT_KINDS:
-            detected = _parse(ev["detected_at"])
+            detected = parse_iso(ev["detected_at"])
             if detected is not None and detected < pending_cutoff:  # waited too long: drop silently
                 consumed.append(ev["id"])
                 continue
@@ -179,8 +180,8 @@ def _domain_section(
     for repo_id, evs in by_kind["new_repo"].items():
         ev = evs[0]
         a = answers(repo_id)
-        stars = _stars(conn, repo_id)
-        created = _parse(ev["created_at"])
+        stars = current_stars(conn, repo_id)
+        created = parse_iso(ev["created_at"])
         is_new = created is not None and created >= cutoff
         kind, level = _kind_level(a)
         fields: dict[str, Any] = {
@@ -207,8 +208,8 @@ def _domain_section(
 
     release_cands: list[_Cand] = []
     for repo_id, evs in by_kind["release"].items():
-        payload = _json(evs[-1]["payload_json"])  # newest release event
-        stars = _stars(conn, repo_id)
+        payload = json_object(evs[-1]["payload_json"])  # newest release event
+        stars = current_stars(conn, repo_id)
         item = DigestItem(
             domain.id,
             repo_id,
@@ -224,7 +225,7 @@ def _domain_section(
     for repo_id, evs in by_kind["stack_changed"].items():
         changes = []
         for e in evs:
-            p = _json(e["payload_json"])
+            p = json_object(e["payload_json"])
             changes.append(
                 {
                     "path": p.get("path"),
@@ -232,7 +233,7 @@ def _domain_section(
                     "removed": p.get("removed") or [],
                 }
             )
-        stars = _stars(conn, repo_id)
+        stars = current_stars(conn, repo_id)
         item = DigestItem(
             domain.id,
             repo_id,

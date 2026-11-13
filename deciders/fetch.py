@@ -11,17 +11,29 @@ Files will appear in cache: ~/.cache/huggingface/hub/models--<org>--<name>/snaps
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
 import yaml
-from huggingface_hub import snapshot_download
 
 ROOT = Path(__file__).resolve().parent
 CODE_PATTERNS = ["*.py", "**/*.py", "*.json", "*.md", "*.txt", "*.jinja", "LICENSE", "NOTICE", "source/**"]
 
 
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def pinned(revision: object) -> bool:
+    """A full 40-character commit hash: the model code runs on this machine, so no moving branch or tag."""
+    return isinstance(revision, str) and COMMIT_SHA.fullmatch(revision) is not None
+
+
 def main() -> None:
+    from huggingface_hub import (
+        snapshot_download,  # not at module level: `pinned` is importable without it
+    )
+
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("names", nargs="+", help="names from models.yaml (d1-2B, d1-3B, pplx-flash)")
     p.add_argument("--code-only", action="store_true", help="code and configs only, no weights")
@@ -32,8 +44,11 @@ def main() -> None:
         if name not in models:
             sys.exit(f"Unknown model {name!r}. Available: {', '.join(models)}")
         m = models[name]
-        if not m.get("revision"):
-            sys.exit(f"Model {name!r} has no pinned revision in models.yaml; refusing to fetch a moving branch.")
+        if not pinned(m.get("revision")):
+            sys.exit(
+                f"Model {name!r}: revision in models.yaml must be a full 40-character commit hash; "
+                "refusing to fetch a moving branch."
+            )
         print(f"==> {name}: {m['repo']}@{m['revision'][:8]}{' (code only)' if args.code_only else ''}", flush=True)
         path = snapshot_download(
             m["repo"], revision=m["revision"],

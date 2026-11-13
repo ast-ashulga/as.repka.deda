@@ -1,4 +1,4 @@
-"""Shared frozen value types (architecture § 6). Fields only; owning tasks may add defaulted fields."""
+"""Shared frozen value types. Fields only; new fields should have defaults."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class Verdict:
     model: str
     questions_hash: str
     input_hash: str
-    answers: dict[str, Any]  # question id -> normalized answer (architecture § 6)
+    answers: dict[str, Any]  # question id -> normalized answer
     accepted: bool
 
 

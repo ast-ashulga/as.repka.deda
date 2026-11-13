@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from repka.config import CollectConfig, GithubConfig
-from repka.github.client import GitHubClient, RateLimited
+from repka.github.client import GitHubClient, GitHubError, RateLimited
 from repka.github.enrich import build_enrich_query, enrich_repos, snapshot_from_node
 from repka.models import KeyFile, RepoHit, Snapshot
 from repka.store import repo
@@ -115,7 +115,7 @@ def test_empty_repo_commits_zero():
     assert s.latest_release_tag is None and s.latest_release_at is None
 
 
-def test_null_node_marks_repo_gone(conn):  # RF3
+def test_null_node_marks_repo_gone(conn):
     add_repo(conn, 100)
     repo.insert_snapshot(conn, old_snapshot(100, NOW - timedelta(days=1)))
     client = FakeClient()
@@ -198,7 +198,7 @@ def test_no_release_event_for_old_release_on_first_sighting(conn):
     assert [(rid, kind) for rid, kind, _ in events(conn)] == [(300, "release")]  # only the 2-day-old one
 
 
-def test_baseline_scan_emits_no_release_event_for_a_first_sighting(conn):  # P1-T22: silent baseline
+def test_baseline_scan_emits_no_release_event_for_a_first_sighting(conn):  # silent baseline
     add_repo(conn, 100)
     add_repo(conn, 300)
     repo.insert_snapshot(conn, old_snapshot(300, NOW - timedelta(days=1), tag="v1.1.0"))  # known from another domain
@@ -259,6 +259,29 @@ def test_poisonous_node_splits_the_batch_and_is_skipped(conn):
     assert all(repo.latest_snapshot(conn, rid) for rid in ids if rid != 300)
 
 
+def test_failing_blob_text_query_is_retried_as_halves_not_fatal(conn):
+    """The key-file text query shares the skip logic of the node query: one 5xx must not lose the batch."""
+
+    class FlakyTexts(FakeClient):
+        def __init__(self, *nodes, **kw):
+            super().__init__(*nodes, **kw)
+            self.failed = False
+
+        def graphql(self, query, variables):
+            if "stargazerCount" not in query and not self.failed:
+                self.failed = True
+                self.graphql_calls.append(query)
+                raise GitHubError("GraphQL returned no data: 502")
+            return super().graphql(query, variables)
+
+    for rid in (100, 200):
+        add_repo(conn, rid)
+    client = FlakyTexts(node(100), node(200, base=1))
+    stats = run(client, conn, [100, 200], key_files=KEY_FILES)
+    assert stats.repos == 2 and stats.skipped == 0
+    assert all(repo.latest_snapshot(conn, rid) for rid in (100, 200))
+
+
 def test_batches_commit_and_call_count(conn):
     for rid in (100, 200, 300):
         add_repo(conn, rid)
@@ -284,7 +307,7 @@ def test_slow_metrics_only_when_due(conn):
     assert len(client.contributors_calls) == len(client.participation_calls) == 2
 
 
-def test_slow_metrics_only_for_accepted(conn):  # RF9
+def test_slow_metrics_only_for_accepted(conn):
     add_repo(conn, 100)
     add_repo(conn, 200)
     client = FakeClient(node(100), node(200, base=1))

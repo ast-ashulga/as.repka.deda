@@ -1,6 +1,6 @@
 # Run observability: phase, progress and ETA while `repka run` is working
 
-Status: design, 2026-11-10. Branch `feat/run-observability`, not merged: waits for the owner's approval.
+Status: implemented (2026-11-10); see `src/repka/progress/` and `repka status`.
 Everything marked **(my call)** was not stated by the owner; check it while reading.
 
 ## Why
@@ -126,7 +126,7 @@ reported; 2 only on usage/config errors.
 
 ## Constraints carried from the project
 All flags false by default (D1, no other flag added); config loader strict; stdout unchanged; tests never touch
-network and use an injected clock; `printable()` on outside text; docs updated in `architecture.md` (§3.2, §5, §7)
+network and use an injected clock; `printable()` on outside text; docs updated in `architecture.md` (sections 3.2, 5 and 7)
 and README; unknown or old rows tolerated (`timings` absent).
 
 ## Left to the builder

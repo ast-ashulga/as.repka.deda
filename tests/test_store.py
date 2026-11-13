@@ -1,12 +1,11 @@
-from datetime import UTC, datetime
 import sqlite3
+from datetime import UTC, datetime
 
 import pytest
 
 from repka.cli import main
 from repka.models import Event, KeyFile, RepoHit, Snapshot
-from repka.store import repo
-from repka.store import db
+from repka.store import db, repo
 from repka.store.db import connect, migrate, utcnow
 from repka.store.repo import DomainState, SqliteEtagCache
 

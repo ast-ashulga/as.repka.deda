@@ -5,7 +5,8 @@
 ## Domains
 
 A domain is one YAML file, `domains/<id>.yaml`; it is collected only when it says `enabled: true`.
-`domains/example-mcp.yaml` is a complete, disabled example. The wizard `repka domain new` asks for a name,
+`domains/example-mcp.yaml` is a complete, disabled example; `domains/examples/` holds two more (`mcp.yaml` with facet
+questions, `ai-agent-harness.yaml`), also disabled and never loaded from there: copy one into `domains/` to use it. The wizard `repka domain new` asks for a name,
 description, keyword groups, topics, languages, excludes, minimum stars, fork policy and scan interval, then
 prints the plan and writes the file only after a final `y` (`--probe` also counts GitHub results per query).
 
@@ -16,7 +17,7 @@ uv run repka domain plan example-mcp   # the GitHub queries (keywords x language
 ```
 
 The `profile` text is what the decider model reads, so it should state what is in scope, what is out of scope
-and give examples. `min_stars` is the main lever on data volume: `domains/mcp.yaml` uses 300 and a single keyword group, which keeps a
+and give examples. `min_stars` is the main lever on data volume: `domains/examples/mcp.yaml` uses 300 and a single keyword group, which keeps a
 domain at a few thousand repos instead of tens of thousands. After raising it, run `repka db prune` (see
 [Keeping the database small](database.md)) to drop what no longer matches.
 Keep `min_stars` and the languages tight for a first run: a README keyword such as
@@ -26,7 +27,7 @@ run continues). Keyword groups search `description` and `readme` (`name` is drop
 GitHub then returns nothing); `in: [name]` with a phrase finds nothing either.
 
 A domain can also carry **facet questions** under `triage.questions` (yes/no questions of `type: noul`, for example
-`gateway` or `guardrails` in `domains/mcp.yaml`). They never decide whether a repo is accepted (thresholds ignore
+`gateway` or `guardrails` in `domains/examples/mcp.yaml`). They never decide whether a repo is accepted (thresholds ignore
 them); they say how an accepted repo differs from the others in its domain and become the facet tags of the
 insights digest. Changing a domain's questions re-triages its repos at the next run, which can take a long while
 on a large domain.

@@ -181,6 +181,28 @@ def test_graphql_empty_body_is_github_error_not_json_error():
     assert not isinstance(exc.value, RateLimited)
 
 
+@pytest.mark.parametrize("body", [b"", b"<html>bad gateway</html>", b"[1, 2]"])
+def test_search_non_json_or_wrong_shape_is_github_error(body):
+    client, _, _ = make(httpx.Response(200, content=body))
+    with pytest.raises(GitHubError, match="HTTP 200"):
+        client.search_repos("x")
+
+
+def test_check_auth_non_json_is_github_error():
+    client, _, _ = make(httpx.Response(200, content=b"<html></html>"))
+    with pytest.raises(GitHubError, match="non-JSON body .HTTP 200"):
+        client.check_auth()
+
+
+def test_contributors_and_participation_non_json_are_github_errors():
+    client, _, _ = make(httpx.Response(200, content=b"<html></html>"))
+    with pytest.raises(GitHubError, match="non-JSON"):
+        client.contributors_count("o/r")
+    client, _, _ = make(httpx.Response(200, content=b""))
+    with pytest.raises(GitHubError, match="non-JSON"):
+        client.participation("o/r")
+
+
 def test_transport_error_retries_then_succeeds():
     client, rec, fake = make(httpx.ConnectError("boom"), search_ok())
     assert client.search_total_count("q") == 1

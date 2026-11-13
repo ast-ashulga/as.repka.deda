@@ -1,6 +1,6 @@
 id: mcp
-name: "MCP servers & tooling "
-enabled: true
+name: "MCP servers & tooling"
+enabled: false
 scan_every: 20h
 profile: |
   Model Context Protocol (MCP) servers, clients, SDKs and gateways: code that

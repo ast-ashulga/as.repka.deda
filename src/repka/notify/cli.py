@@ -8,6 +8,7 @@ import sys
 
 from repka import config
 from repka.config import ConfigError, load_config
+from repka.digest.render import split_messages
 from repka.notify.telegram_user import TelegramUserSender
 from repka.textutil import html_escape, printable
 
@@ -25,7 +26,7 @@ def _login(_args: argparse.Namespace) -> int:
 
 def _test(args: argparse.Namespace) -> int:
     cfg = load_config().notify
-    parts = [html_escape(printable(args.text))]
+    parts = split_messages(html_escape(printable(args.text)).split("\n")) or [""]  # a message is capped at 4096
     if args.dry_run:
         print(f"[dry-run] to {cfg.chat_id}" + (f" topic {cfg.topic_id}" if cfg.topic_id is not None else ""))
         for i, part in enumerate(parts, 1):
@@ -37,7 +38,7 @@ def _test(args: argparse.Namespace) -> int:
     config.require_session()
     result = TelegramUserSender(cfg.chat_id, cfg.topic_id).send(parts)
     if not result.ok:
-        print(f"error: send failed after {result.sent} part(s): {result.error}", file=sys.stderr)
+        print(f"error: send failed after {result.sent} part(s): {printable(result.error or '')}", file=sys.stderr)
         return 1
     print(f"sent {result.sent} message(s) to {cfg.chat_id}")
     return 0

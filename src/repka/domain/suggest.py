@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+# Cyrillic on purpose: the suggester also handles Russian domain descriptions, so Russian stop-words are functional.
 STOPWORDS = frozenset(
     {
         # English

@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import sqlite3
 from collections.abc import Callable
@@ -19,12 +20,17 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from repka.config import ConfigError
-from repka.github.client import GitHubError, RateLimited
 from repka.domain.schema import Domain
+from repka.github.client import GitHubError, RateLimited
 from repka.models import TriageItem
 from repka.progress import notify
-from repka.textutil import printable, truncate
-from repka.triage.deciders import DeciderBackend, QuestionSet, questions_hash
+from repka.textutil import neutralize_fence, printable, truncate
+from repka.triage.deciders import (
+    DeciderBackend,
+    QuestionSet,
+    questions_hash,
+    request_id,
+)
 
 log = logging.getLogger("repka.triage")
 
@@ -66,7 +72,8 @@ def pending_repos(conn: sqlite3.Connection, domain_id: str, model: str, qhash: s
 
 
 def build_item(row: sqlite3.Row, readme: str, domain: Domain, readme_chars: int, template: str) -> TriageItem:
-    """The model input for one repo. Everything that comes from outside goes through `printable`."""
+    """The model input for one repo. Everything that comes from outside goes through `printable`, and runs of
+    three double quotes in it are broken up: the state template wraps the README and the profile in such fences."""
     topics = ", ".join(json.loads(row["topics_json"] or "[]"))
     stars = row["stars"] if "stars" in row.keys() and row["stars"] is not None else "unknown"
     fields = {
@@ -79,7 +86,7 @@ def build_item(row: sqlite3.Row, readme: str, domain: Domain, readme_chars: int,
         "readme_excerpt": truncate(readme, readme_chars),
         "domain_profile": domain.profile,
     }
-    state = render_state(template, {k: printable(v) for k, v in fields.items()})
+    state = render_state(template, {k: neutralize_fence(printable(v)) for k, v in fields.items()})
     return TriageItem(repo_id=row["repo_id"], domain_id=domain.id, state=state, input_hash=meta_hash(row))
 
 
@@ -119,13 +126,17 @@ def validate_thresholds(thresholds: dict[str, float], q: QuestionSet) -> None:
 
 
 def is_accepted(answers: dict[str, dict], thresholds: dict[str, float]) -> bool:
-    """noul: p >= t; score: pred >= t. All thresholds must pass; a missing answer fails."""
+    """noul: p >= t; score: pred >= t. All thresholds must pass; a missing, malformed or non-finite answer fails
+    (stored answers are re-read by `reclassify`, so a NaN must never compare as "not below the threshold")."""
     for qid, t in thresholds.items():
         a = answers.get(qid)
         if a is None:
             return False
-        value = a["p"] if a["type"] == "noul" else a["pred"]
-        if value < t:
+        try:
+            value = a["p"] if a["type"] == "noul" else a["pred"]
+            if not (math.isfinite(value) and value >= t):
+                return False
+        except (KeyError, TypeError):
             return False
     return True
 
@@ -156,10 +167,6 @@ class TriageStats:
     errors: int = 0
     rate_limited: bool = False  # a README fetch hit the rate limit: the repos that needed one stay pending
     decisions: list[tuple[str, dict[str, dict], bool]] = field(default_factory=list)  # (full_name, answers, accepted)
-
-
-def _rid(item: TriageItem) -> str:
-    return f"{item.domain_id}:{item.repo_id}"
 
 
 def _save_verdict(
@@ -203,7 +210,7 @@ def triage_domain(
 
     Failure blame: a repo only gets a verdict row when the backend answered ALL its questions. A WorkerError
     propagates after nothing was written for its chunk (earlier chunks and fetched READMEs are kept), and a
-    per-item error, a missing answer or a rate-limited README fetch just leaves that repo pending (RF7, RF9).
+    per-item error, a missing answer or a rate-limited README fetch just leaves that repo pending.
     """
     qhash = questions_hash(q)
     reclassify(conn, domain.id, model, qhash, thresholds)
@@ -238,7 +245,7 @@ def triage_domain(
                 store_readme(conn, row["repo_id"], excerpt, now)
             item = build_item(row, excerpt, domain, readme_chars, q.state_template)
             items.append(item)
-            rows[_rid(item)] = row
+            rows[request_id(item)] = row
         conn.commit()  # fetched READMEs are kept even if the worker fails below
         if not items:
             notify(on_progress, chunk_done, total, "")
@@ -246,7 +253,7 @@ def triage_domain(
         notify(on_progress, start, total, f"worker deciding {len(items)} repos")
         answers_by_rid, errors_by_rid = backend.decide(items, q)  # WorkerError propagates: nothing written yet
         for item in items:
-            rid, row = _rid(item), rows[_rid(item)]
+            rid, row = request_id(item), rows[request_id(item)]
             answers = answers_by_rid.get(rid)
             if answers is None or rid in errors_by_rid:
                 log.warning("%s stays pending: %s", row["full_name"], errors_by_rid.get(rid, "no answer from the backend"))

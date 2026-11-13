@@ -4,7 +4,7 @@
 
 > **Planning depth:** Phase 2 is planned at task level (goal, inputs, outputs, acceptance criteria). The requirements say it starts only after Phase 1 is stable, so its detailed steps are written when Gate G1 passes. **Before starting any P2 task, an agent first refines it** in this file (Files / Interfaces / Steps, same format as Phase 1), using what Phase 1 actually built, and gets the refinement approved.
 
-Decision: Streamlit multipage app, Plotly, umap-learn, scikit-learn (HDBSCAN, t-SNE) — [ADR-008](../../spec/decisions.md#adr-008-phase-2-dashboard--streamlit-reading-the-same-sqlite). Dependencies go in an optional group `dashboard` (`uv sync --group dashboard`) so the daemon's environment stays small. Launch: `repka dashboard` → `streamlit run dashboard/app.py` bound to `127.0.0.1` only.
+Decision: Streamlit multipage app, Plotly, umap-learn, scikit-learn (HDBSCAN, t-SNE) — [ADR-008](../../../spec/decisions.md#adr-008-phase-2-dashboard--streamlit-reading-the-same-sqlite). Dependencies go in an optional group `dashboard` (`uv sync --group dashboard`) so the daemon's environment stays small. Launch: `repka dashboard` → `streamlit run dashboard/app.py` bound to `127.0.0.1` only.
 
 ---
 

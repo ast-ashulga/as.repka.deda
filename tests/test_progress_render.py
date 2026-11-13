@@ -7,7 +7,12 @@ import pytest
 from repka.logging_setup import setup_logging
 from repka.progress.active import activate, owns_stderr, stderr_line
 from repka.progress.events import RunProgress
-from repka.progress.render import JsonlRenderer, LinesRenderer, LiveRenderer, make_renderer
+from repka.progress.render import (
+    JsonlRenderer,
+    LinesRenderer,
+    LiveRenderer,
+    make_renderer,
+)
 
 WALL = 1_700_000_000.0
 

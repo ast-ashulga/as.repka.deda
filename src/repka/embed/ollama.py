@@ -1,4 +1,4 @@
-"""Ollama embedder: `POST {url}/api/embed` with a list of inputs, returns one vector per input (T04 spike)."""
+"""Ollama embedder: `POST {url}/api/embed` with a list of inputs, returns one vector per input."""
 
 from __future__ import annotations
 

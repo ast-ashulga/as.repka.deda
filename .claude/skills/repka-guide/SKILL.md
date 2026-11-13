@@ -31,7 +31,7 @@ uv run repka status                 # is a pass running right now (stage, progre
 uv run repka db stats               # row counts and recent runs (0 rows = never run)
 ```
 
-Also read `.config.yaml` (not `.env`) and note these values: `triage.enabled`, `embed.enabled`, `notify.enabled`, `run.send`, `digest.slots`, `notify.chat_id`, `collect.first_window`, `collect.accepted_refresh_every`. The file is the source of truth: the tracked `.config.yaml` is a set of overrides and on this machine it may already have triage, embeddings and sending switched on, even though the code defaults are all `false`. Do not assume a fresh install. `references/config-reference.md` explains each key.
+Also read `.config.yaml` (not `.env`) and note these values: `triage.enabled`, `embed.enabled`, `notify.enabled`, `run.send`, `digest.slots`, `notify.chat_id`, `collect.first_window`, `collect.accepted_refresh_every`. The file is the source of truth: the user may already have switched triage, embeddings and sending on in their own copy, even though the code defaults are all `false`. Do not assume a fresh install. `references/config-reference.md` explains each key.
 
 If `repka status` says a run is going, do not start another `run`, `collect`, `triage`, `embed` or `db prune --apply`: they share the run lock and would just report it busy.
 
@@ -60,14 +60,14 @@ Walk the list in order; stop and fix whatever `doctor` flags before moving on. A
 
 1. **Intent questions** (ask, with a recommended default in each option):
    - What topic(s) to watch? (Each becomes a domain.) A rough answer is enough; the domain-profile skill refines it.
-   - Should it filter with the local model (`triage.enabled`; needs about 6 GB disk and takes ~2 s per repo) or just collect? Without triage nothing is accepted and digests stay empty, so recommend yes unless disk is tight.
+   - Should it filter with the local model (`triage.enabled`; needs about 6 GB of one-time weight downloads from Hugging Face plus roughly 1 GB per Python environment, and takes ~2 s per repo) or just collect? Without triage nothing is accepted and digests stay empty, so recommend yes unless disk is tight.
    - Want "similar repos" search (`embed.enabled`; needs Ollama)? Optional.
    - Preview only for now, or Telegram delivery? Recommend preview first; delivery is added at step 6 once the preview looks right.
 2. **Install and check:** `uv sync`, then `uv run repka doctor`. GitHub auth: `gh auth login` (or the user sets `REPKA_GITHUB_TOKEN` in `.env` themselves).
 3. **Define a domain:** hand off to the `domain-profile` skill (it interviews, researches GitHub read-only and writes `domains/<id>.yaml` validated, disabled by default), or the user runs `! uv run repka domain new`. Check with `uv run repka domain plan <id>`. Enable it (`enabled: true` in the domain file) only when the user says so. Tell them to keep `min_stars` and `languages` tight: a broad README keyword can match over a thousand repos per language.
 4. **Models (if triage/embed wanted):**
-   - Triage: `./deciders/setup.sh` then `./deciders/setup.sh --download d1-3B` (about 6 GB; tell the user before starting the download). Set `triage.enabled: true`.
-   - Embeddings: `ollama serve` (user's terminal), `ollama pull nomic-embed-text`, then `embed.enabled: true`.
+   - Triage: `./deciders/setup.sh` then `./deciders/setup.sh --download d1-3B` (about 6 GB, downloaded once from Hugging Face; tell the user before starting the download). Set `triage.enabled: true`.
+   - Embeddings: `ollama serve` (user's terminal), `ollama pull nomic-embed-text` (a one-time download of the embedding model; Ollama itself is installed from https://ollama.com), then `embed.enabled: true`.
 5. **Rehearse:** suggest a short window for the first try (`collect.first_window: 7d`), then `uv run repka doctor` until it says all good, then `uv run repka run` (collect → triage → embed → digest PREVIEW, nothing is sent). A first scan of ~230 repos took ~8 minutes, so warn the user it can take a while; progress is on stderr and an interrupted run resumes. Remember: the first preview is empty by design; a second pass later shows what is new.
 6. **Telegram delivery (only if wanted):**
    - The user puts `REPKA_TG_API_ID` / `REPKA_TG_API_HASH` (from https://my.telegram.org) into `.env` themselves.

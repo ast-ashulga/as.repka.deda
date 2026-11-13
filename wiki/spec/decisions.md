@@ -4,20 +4,20 @@
 
 Format: context → decision → consequences. Status: `accepted` unless noted. To change a decision, add a new ADR that supersedes the old one; don't edit history.
 
-## ADR-001: Python + uv CLI, patterned on `as.tegerun.cli`
+## ADR-001: Python + uv CLI, patterned on an earlier private prototype
 - **Context:** The reference project already runs local deciders on Apple Silicon and talks to Telegram, with well-tested conventions.
-- **Decision:** Python ≥ 3.12, `uv`, hatchling, argparse CLI `repka`, pytest + ruff (`select=["F"]`). Port the reference patterns listed in [reference-tegerun](../research/reference-tegerun.md).
+- **Decision:** Python ≥ 3.12, `uv`, hatchling, argparse CLI `repka`, pytest + ruff (`select=["F"]`). Port the reference's config loader, run lock, text utilities, decider runtime and Telegram sender patterns.
 - **Consequences:** Agents can read working code for every hard part. The main venv stays free of torch/mlx.
 
 ## ADR-002: SQLite + sqlite-vec, with numpy fallback
 - **Context:** The requirements say "sqlite-vss or DuckDB". sqlite-vss is unmaintained; its successor is sqlite-vec (pre-v1). Extension loading may be disabled in some macOS Python builds.
-- **Decision:** One SQLite file. Vectors are stored as float32 BLOBs in `embeddings` (source of truth). `vec0` index tables are optional and built from them when `sqlite_vec` loads; otherwise `store/vectors.py` falls back to brute-force numpy cosine. Spike [P1-T02](../plans/phase-1/M0-foundation.md#p1-t02-spike-sqlite-vec-loads-under-uv-python) decides whether the index is used at all.
+- **Decision:** One SQLite file. Vectors are stored as float32 BLOBs in `embeddings` (source of truth). `vec0` index tables are optional and built from them when `sqlite_vec` loads; otherwise `store/vectors.py` falls back to brute-force numpy cosine. The [sqlite-vec spike](../spikes/T02-sqlite-vec.md) decides whether the index is used at all.
 - **Consequences:** Pin the exact sqlite-vec version. Never mix models: every vector row carries `model` and `dim`.
-- **Status:** Spike [P1-T02](../spikes/T02-sqlite-vec.md): NO-GO for the `vec0` index (extension loads, but numpy is about 20-28x faster at 5k-50k vectors). numpy brute force is the default; sqlite-vec 0.1.9 stays pinned as an optional path. P1-T17 implemented numpy only (no `vec0` code path, YAGNI); the spike script and extension test keep the switch cheap.
+- **Status:** [Spike](../spikes/T02-sqlite-vec.md): NO-GO for the `vec0` index (extension loads, but numpy is about 20-28x faster at 5k-50k vectors). numpy brute force is the default; sqlite-vec 0.1.9 stays pinned as an optional path. The vector store implements numpy only (no `vec0` code path, YAGNI); the extension test keeps the switch cheap.
 
 ## ADR-003: Local decider backends via worker subprocesses
 - **Context:** Deciders need conflicting ML stacks (transformers versions, MLX).
-- **Decision:** Copy the reference `classifier/` as `deciders/` with the same worker I/O contract. Default model `d1-3B`. A `clef_mlx_worker.py` is added only if spike [P1-T03](../plans/phase-1/M0-foundation.md#p1-t03-spike-local-decider-runs-on-this-mac) and task [P1-T16](../plans/phase-1/M3-triage.md#p1-t16-optional-clef-mlx-worker) succeed.
+- **Decision:** Copy the reference `classifier/` as `deciders/` with the same worker I/O contract. Default model `d1-3B`. A `clef_mlx_worker.py` was an optional follow-up after the [decider spike](../spikes/T03-deciders.md) and has not been added.
 - **Consequences:** The main package never imports ML libraries. Revisions are pinned to full commit hashes; workers run offline by default; worker env has no secrets.
 
 ## ADR-004: "jev-like" means a local decider; hosted Jev is optional and off
@@ -32,7 +32,7 @@ Format: context → decision → consequences. Status: `accepted` unless noted. 
 
 ## ADR-006: Scheduling = hourly launchd pass + slot logic inside the app
 - **Context:** "Morning/evening digests", per-domain scan periodicity (Phase 2 UI edits it), a Mac that sleeps.
-- **Decision:** One launchd agent runs `repka run` every hour. The app decides which domains are due and whether a digest slot is due (with coalescing and `max_lateness`). `repka schedule install` is an explicit command.
+- **Decision:** One launchd agent runs `repka run` every hour by default (or at fixed times with `repka schedule install --at`). The app decides which domains are due and whether a digest slot is due (with coalescing and `max_lateness`). `repka schedule install` is an explicit command.
 - **Consequences:** Changing a domain's `scan_every` or the digest slots needs no launchd change. A missed slot never produces two digests.
 
 ## ADR-007: GitHub data access = REST search + batched GraphQL enrichment
@@ -44,4 +44,4 @@ Format: context → decision → consequences. Status: `accepted` unless noted. 
 - **Context:** The requirements suggest Streamlit or FastAPI; the dashboard is local and single-user.
 - **Decision:** Streamlit multipage app in `dashboard/` (optional dependency group `dashboard`), Plotly charts, umap-learn + scikit-learn HDBSCAN. It reads the DB read-only except for domain management, which writes `domains/*.yaml` through `repka.domain.schema` functions.
 - **Consequences:** No API layer to maintain. Detailed design happens after Phase 1 is stable.
-- **Amendment (P2-T03, Landscape Recompute):** The dashboard's read-only rule has one more documented exception, not just domain management. The Landscape page's explicit **Recompute** button opens a writable connection (`connect()`), runs `migrate()` (applies any pending migrations), and upserts one row into `landscape_cache` via `dashboard_data.store_landscape`. The projection itself is computed on a read-only connection first, and nothing is written when there are no embeddings. Every other dashboard path stays read-only; the Domains page writes only `domains/*.yaml` through `repka.domain.schema`. `migrate()` is race-safe: each step takes the write lock first (`BEGIN IMMEDIATE`) and re-reads the schema version under it, so if `repka run` (or `repka db migrate`) migrates at the same moment, the second process finds the migration already applied and skips it. See [architecture](architecture.md) §4 for the table contract.
+- **Amendment (Landscape Recompute):** The dashboard's read-only rule has one more documented exception, not just domain management. The Landscape page's explicit **Recompute** button opens a writable connection (`connect()`), runs `migrate()` (applies any pending migrations), and upserts one row into `landscape_cache` via `dashboard_data.store_landscape`. The projection itself is computed on a read-only connection first, and nothing is written when there are no embeddings. Every other dashboard path stays read-only; the Domains page writes only `domains/*.yaml` through `repka.domain.schema`. `migrate()` is race-safe: each step takes the write lock first (`BEGIN IMMEDIATE`) and re-reads the schema version under it, so if `repka run` (or `repka db migrate`) migrates at the same moment, the second process finds the migration already applied and skips it. See [architecture](architecture.md) §4 for the table contract.

@@ -4,7 +4,7 @@
 
 Goal of the milestone: a domain is a validated YAML file; `repka domain plan` expands it into GitHub search queries that respect GitHub's query limits; a user can create one through an interactive CLI wizard or through a Claude Code interview skill.
 
-Contract: [architecture § 3.3 domain file](../../spec/architecture.md#33-domain-file-domainsidyaml) · Research: [github-api § 2](../../research/github-api.md#2-search-what-is-and-isnt-returned)
+Contract: [architecture § 3.3 domain file](../../../spec/architecture.md#33-domain-file-domainsidyaml) · Research: [github-api § 2](../../../research/github-api.md#2-search-what-is-and-isnt-returned)
 
 ---
 
@@ -115,7 +115,7 @@ def test_plan_json_cli(home, capsys): # prints {"domain":..., "queries":[{key,q,
 
 ```python
 def test_suggest_quoted_phrases_first(): assert suggest_keywords('Tools for "model context protocol" servers')[0] == ["model context protocol"]
-def test_suggest_skips_stopwords(): assert all(w not in {"the","and","для","и"} for g in suggest_keywords(TEXT) for w in g)
+def test_suggest_skips_stopwords(): assert all(w not in {"the","and","\u0434\u043b\u044f","\u0438"} for g in suggest_keywords(TEXT) for w in g)  # "\u0434\u043b\u044f" and "\u0438" are Russian stop-words
 def test_suggest_is_deterministic()
 def test_wizard_scripted_creates_valid_domain(tmp_path): # ScriptedIO with answers -> Domain; save; load_domain equals it
 def test_wizard_default_enabled_false()

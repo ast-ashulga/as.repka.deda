@@ -1,4 +1,4 @@
--- Architecture § 4 (every table except vec_index_*, which T17 creates at runtime).
+-- Initial schema: every table. Embedding vectors live in `embeddings` (no vector-index tables).
 -- Timestamps are UTC ISO-8601 strings; JSON columns are TEXT.
 
 CREATE TABLE schema_version (
@@ -136,7 +136,7 @@ CREATE TABLE digest_items (
     PRIMARY KEY (digest_id, repo_id, kind)
 );
 
--- Deviation (see P1-T09 report): `kind` added so start_run(conn, kind) can be stored.
+-- `kind` records which kind of pass a run was (start_run(conn, kind)).
 -- status is NULL while the run is still running.
 CREATE TABLE runs (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -5,10 +5,13 @@
 ## Requirements
 
 - macOS on Apple Silicon (the only supported target), [uv](https://docs.astral.sh/uv/) (it fetches Python 3.12).
-- A GitHub login: `gh auth login` (repka falls back to `gh auth token`) or a personal access token in `.env`.
+- A GitHub login: [GitHub CLI](https://cli.github.com) `gh auth login` (`brew install gh`; repka falls back to `gh auth token`) or a personal access token in `.env`.
   A fine-grained token with read-only public access is enough.
-- For triage: about 6 GB of disk for the decider model (`d1-3B`) and its environment.
-- Optional: [Ollama](https://ollama.com) with `nomic-embed-text` (embeddings, `repka similar`).
+- For triage: about 6 GB of disk for the decider model (`d1-3B`) plus roughly 1 GB for each of its Python environments
+  (`./deciders/setup.sh` installs torch and transformers). The weights are downloaded once from Hugging Face; after that
+  the workers run offline.
+- Optional: [Ollama](https://ollama.com) (install it separately, for example `brew install ollama`) with `nomic-embed-text`
+  (`ollama pull` downloads it once; used for embeddings and `repka similar`).
 - Optional: the dashboard's dependencies, `uv sync --group dashboard` (plain `uv sync` does not install them).
 - Optional: a Telegram account and API credentials from https://my.telegram.org (digest delivery).
 
@@ -21,7 +24,8 @@ uv sync
 uv run repka doctor                  # lists everything that is missing, each with the exact fix
 ```
 
-`doctor` reports an error until a domain exists ("no enabled domain"). Fix everything else in its list first, then create
+`doctor` reports an error until a domain is enabled ("no enabled domain"): the repo ships only disabled examples
+(`domains/example-mcp.yaml`, and more in `domains/examples/`). Fix everything else in its list first, then create
 a domain (below) and run `doctor` again until it says all good:
 
 ```bash

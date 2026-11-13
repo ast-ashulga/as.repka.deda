@@ -6,12 +6,24 @@ import argparse
 import dataclasses
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from repka.config import ConfigError, domains_dir, github_token, github_token_source, load_config
+from repka.config import (
+    ConfigError,
+    domains_dir,
+    github_token,
+    github_token_source,
+    load_config,
+)
 from repka.domain.matrix import build_queries, scan_window
-from repka.domain.schema import dump_domain, format_duration, get_domain, load_domains, save_domain
+from repka.domain.schema import (
+    dump_domain,
+    format_duration,
+    get_domain,
+    load_domains,
+    save_domain,
+)
 from repka.domain.wizard import TerminalIO, run_wizard
 from repka.github.client import GitHubClient, GitHubError
 from repka.textutil import printable
@@ -82,7 +94,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     d = get_domain(args.id)
     queries = build_queries(d)
     # No store lookup here: the plan shows the window a domain's first scan would use.
-    window = scan_window(None, datetime.now(timezone.utc), load_config().collect)
+    window = scan_window(None, datetime.now(UTC), load_config().collect)
     if args.json:
         payload = {
             "domain": d.id,
@@ -112,7 +124,7 @@ def _cmd_new(args: argparse.Namespace) -> int:
         cfg = load_config()
         token = github_token()  # fails now, before the interview, if there is no token
         client = GitHubClient(token, cfg.github, token_source=github_token_source())
-        start = scan_window(None, datetime.now(timezone.utc), cfg.collect).start
+        start = scan_window(None, datetime.now(UTC), cfg.collect).start
         qualifier = f"pushed:>={start.isoformat()}"
         search = client.search_total_count
 

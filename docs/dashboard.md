@@ -4,7 +4,9 @@
 
 ## Dashboard (optional)
 
-A local Streamlit view of the same database, for people. It needs the optional `dashboard` dependency group.
+A local Streamlit dashboard over the same database, for people. It is a view, not a control panel: it reads the database and only two
+features write anything (listed below), so it is not strictly read-only. It needs the optional `dashboard` dependency group and a source
+checkout (run `uv run repka dashboard` inside the clone; the dashboard files are located relative to the package).
 
 ```bash
 uv sync --group dashboard            # one time
@@ -23,9 +25,13 @@ database exists, the pages say to run `repka db migrate`, then `repka run`.
 
 The dashboard opens the database read-only (it works while `repka run` writes), with two exceptions:
 
-- Landscape's **Recompute** stores the map in the `landscape_cache` table.
+- Landscape's **Recompute** stores the map in the `landscape_cache` table. For that it opens a writable connection and first
+  applies any pending database migrations; nothing is written when there are no embeddings.
 - The Domains page creates, edits and deletes `domains/<id>.yaml`. Deleting removes only the file: collected repos,
   verdicts and runs stay in the database; `repka db prune` only removes repos that a remaining domain's `min_stars` no longer matches.
+
+Contributors: the dashboard tests are skipped on a plain `uv sync`; run `uv sync --group dashboard` before `uv run pytest -q`
+to include them.
 
 Troubleshooting:
 

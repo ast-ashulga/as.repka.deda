@@ -1,7 +1,13 @@
 from datetime import UTC, datetime
 
+import pytest
+
+from repka.cli import main
+from repka.config import state_dir
 from repka.domain.schema import load_domain
 from repka.models import RepoHit, Snapshot
+from repka.runlock import LockBusy, RunLock
+from repka.store import prune as prune_mod
 from repka.store import repo
 from repka.store.db import connect, migrate
 from repka.store.prune import prune
@@ -73,3 +79,51 @@ def test_prune_thins_old_snapshots_to_one_per_week(tmp_path):
     assert report.snapshots_thinned == 2
     assert kept == ["2026-01-07", "2026-01-13", "2026-10-30", "2026-10-31"]
     assert prune(conn, [], 4000, apply=True, snapshot_days=0, now=now).snapshots_thinned == 0
+
+
+@pytest.fixture
+def db_home(home):
+    conn = connect(state_dir() / "repka.db")
+    migrate(conn)
+    conn.close()
+    return home
+
+
+@pytest.mark.parametrize("argv", [["db", "prune"], ["db", "prune", "--apply"]])
+def test_prune_always_runs_under_the_run_lock(db_home, monkeypatch, argv):
+    """A dry run also opens a writable connection and migrates, so it must not run beside a live `repka run`."""
+    held = []
+
+    def spy(*a, **k):
+        try:
+            with RunLock(state_dir() / "run.lock"):
+                held.append(False)
+        except LockBusy:
+            held.append(True)
+        return prune_mod.PruneReport()
+
+    monkeypatch.setattr(prune_mod, "prune", spy)
+    assert main(argv) == 0
+    assert held == [True]
+
+
+def test_prune_dry_run_leaves_the_database_alone_while_a_run_holds_the_lock(db_home, monkeypatch, capsys):
+    monkeypatch.setattr(prune_mod, "connect", lambda *a, **k: pytest.fail("opened the database without the lock"))
+    with RunLock(state_dir() / "run.lock"):
+        assert main(["db", "prune"]) == 0
+    cap = capsys.readouterr()
+    assert "another repka run is in progress" in cap.err and "would prune" not in cap.out
+
+
+def test_snapshot_days_zero_message_says_thinning_is_off(home, capsys):
+    from repka.cli import main
+    from repka.store.db import connect, migrate
+
+    conn = connect()
+    migrate(conn)
+    conn.close()
+    assert main(["db", "prune", "--snapshot-days", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "thinning is off" in out and "thinned to one per week" not in out
+    assert main(["db", "prune"]) == 0
+    assert "thinned to one per week" in capsys.readouterr().out

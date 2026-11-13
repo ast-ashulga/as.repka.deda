@@ -4,13 +4,13 @@
 
 Goal of the milestone: at each due slot (morning/evening), build one structured digest of what changed in accepted repos across domains and send it to a Telegram chat through a bot. Never send empty digests, never send twice for a slot.
 
-Research: [telegram-scheduling](../../research/telegram-scheduling.md) · Metrics definitions: [storage-embeddings § 4](../../research/storage-embeddings.md#4-derived-metrics-definitions-are-fixed-here-used-by-digest-and-dashboard) · ADR: [ADR-005](../../spec/decisions.md#adr-005-telegram-via-the-users-own-account-fast-mcp-telegram-ported-from-the-reference), [ADR-006](../../spec/decisions.md#adr-006-scheduling--hourly-launchd-pass--slot-logic-inside-the-app)
+Research: [telegram-scheduling](../../../research/telegram-scheduling.md) · Metrics definitions: [storage-embeddings § 4](../../../research/storage-embeddings.md#4-derived-metrics-definitions-are-fixed-here-used-by-digest-and-dashboard) · ADR: [ADR-005](../../../spec/decisions.md#adr-005-telegram-via-the-users-own-account-fast-mcp-telegram-ported-from-the-reference), [ADR-006](../../../spec/decisions.md#adr-006-scheduling--hourly-launchd-pass--slot-logic-inside-the-app)
 
 ---
 
 ### P1-T19: Metrics and digest builder
 
-**Req:** R-1.5, R-1.2b · **Depends on:** T05, T12 · **Size:** M (build fixtures from the `answers_json` contract in [architecture § 6](../../spec/architecture.md#6-core-types-srcrepkamodelspy); no dependency on T15)
+**Req:** R-1.5, R-1.2b · **Depends on:** T05, T12 · **Size:** M (build fixtures from the `answers_json` contract in [architecture § 6](../../../spec/architecture.md#6-core-types-srcrepkamodelspy); no dependency on T15)
 **Goal:** Compute `stars_delta`/`velocity`, select and rank digest content per domain, and render it as Telegram HTML split into ≤ 4096-char messages.
 
 **Files:**
@@ -90,7 +90,7 @@ def test_slot_label()
 - Test: `tests/test_telegram_user.py`
 
 **Interfaces:**
-- Consumes: `NotifyConfig`, `config.telegram_credentials()`, `config.session_dir()`, `config.session_file()`, `config.telegram_server_env()`, `config.venv_script()`, `ConfigError`. Port from the reference: `src/tegerun/mcp_client.py` (whole: `GuardedSession`, `open_session`, timeouts, server log 0600) and `src/tegerun/notifier.py` (`deliver`, `_send_error`, `Sender` lifecycle); `extract_payload` from `src/tegerun/reader.py`.
+- Consumes: `NotifyConfig`, `config.telegram_credentials()`, `config.session_dir()`, `config.session_file()`, `config.telegram_server_env()`, `config.venv_script()`, `ConfigError`. Port from the prototype: its MCP client module (whole: `GuardedSession`, `open_session`, timeouts, server log 0600), its notifier (`deliver`, `_send_error`, `Sender` lifecycle) and its `extract_payload` helper.
 - Produces:
   - `repka.notify.mcp_client`: `SEND_TOOLS = frozenset({"send_message"})` (the **only** allowlist in this project: repka never reads chats) · `class ToolNotAllowed(Exception)` · `GuardedSession(session, allow, timeout=120.0)` · `open_session(*, allow) -> AsyncContextManager[GuardedSession]` (server = `venv_script("fast-mcp-telegram")`, `env=telegram_server_env()`, `cwd=session_dir()` so the server never auto-loads repka's `.env`; requires the session file).
   - `repka.notify.telegram_user`:

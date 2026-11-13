@@ -4,14 +4,14 @@
 
 Goal of the milestone: every repo linked to a domain gets a verdict from a local decider ("relevant?", "substance level", "kind"), stored in `verdicts`, and `accepted` repos are what the digest and embeddings use.
 
-Research: [deciders](../../research/deciders.md) · [reference map](../../research/reference-tegerun.md) · ADR: [ADR-003](../../spec/decisions.md#adr-003-local-decider-backends-via-worker-subprocesses), [ADR-004](../../spec/decisions.md#adr-004-jev-like-means-a-local-decider-hosted-jev-is-optional-and-off) · Spike result: `wiki/spikes/T03-deciders.md`
+Research: [deciders](../../../research/deciders.md) · ADR: [ADR-003](../../../spec/decisions.md#adr-003-local-decider-backends-via-worker-subprocesses), [ADR-004](../../../spec/decisions.md#adr-004-jev-like-means-a-local-decider-hosted-jev-is-optional-and-off) · Spike result: `wiki/spikes/T03-deciders.md`
 
 ---
 
 ### P1-T14: Port the decider runtime
 
 **Req:** R-1.3 · **Depends on:** T03 (the `deciders/` kit and spike verdict) · **Size:** M
-**Goal:** A Python-side runtime that loads questions/models, builds worker requests, runs the worker subprocess safely and normalizes answers — ported from `as.tegerun.cli/src/tegerun/classify.py`.
+**Goal:** A Python-side runtime that loads questions/models, builds worker requests, runs the worker subprocess safely and normalizes answers — ported from the prototype's classifier module.
 
 **Files:**
 - Create: `src/repka/triage/__init__.py`, `src/repka/triage/deciders.py`
@@ -49,7 +49,7 @@ def test_single_grouping_rejoins_answers_per_item()
 `fake_worker.py` follows the CLI contract (`--config --requests --out`) and its behaviour is controlled by a field in `--config` (`{"mode": "ok" | "crash_after_1" | "sleep"}`); tests point `deciders_dir` at a tmp dir with `venv/bin/python` symlinked to `sys.executable`.
 
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement** by porting the reference functions; keep its comments on failure blame. **Step 4: Run** → PASS.
-- [ ] **Step 5: Commit & push**, report. Message: `feat(triage): decider runtime ported from tegerun`.
+- [ ] **Step 5: Commit & push**, report. Message: `feat(triage): decider runtime ported from the prototype`.
 
 **Acceptance criteria:** the main package imports no torch/transformers/mlx (`test_smoke` asserts `"torch" not in sys.modules` after importing all `repka` modules); secrets never reach the worker (test).
 
@@ -114,7 +114,7 @@ def test_triage_cli_dry_run_loads_no_model(home, monkeypatch)
 - Test: `tests/test_deciders.py` (add `test_normalize_clef_out_json`)
 
 **Interfaces:**
-- Consumes: worker contract ([deciders § 3](../../research/deciders.md#3-integration-pattern-reused-from-the-reference-project)).
+- Consumes: worker contract ([deciders § 3](../../../research/deciders.md#3-integration-pattern-reused-from-the-reference-project)).
 - Produces: `triage.model: clef-flash-mlx` usable in `.config.yaml`; raw answers in the same shape as d1 (`noul`, `choice`+`confidence`+`probabilities`, `score`+`confidence`+`probabilities`). If Clef's native output differs, the worker converts it.
 
 - [ ] **Step 1:** Review the model's loader code at the pinned revision (`./deciders/setup.sh --code-only clef-flash-mlx`); note in the report what remote code runs.

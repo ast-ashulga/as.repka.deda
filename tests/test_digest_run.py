@@ -9,6 +9,7 @@ from helpers_digest import add_event, add_repo, add_verdict, make_db
 from repka.cli import main
 from repka.config import AppConfig, DigestConfig
 from repka.digest import cli as digest_cli
+from repka.digest import run as run_mod
 from repka.digest.run import run_digest
 from repka.digest.slots import recorded_slots
 from repka.domain.schema import Domain, SearchSpec
@@ -55,7 +56,7 @@ def run(conn, sender, send=True, now=NOW, **kw):
     return run_digest(conn, [DOMAIN], CFG, sender, now, send, tz=TZ, **kw)
 
 
-def test_empty_digest_not_sent(conn):  # RF5
+def test_empty_digest_not_sent(conn):
     sender = FakeSender()
     out = run(conn, sender)
     assert out.status == "empty" and sender.calls == []
@@ -118,6 +119,14 @@ def test_no_double_digest_same_slot(conn):
     assert run(conn, again, slot="19:30").status == "not_due"  # a forced slot is refused too
 
 
+def test_forced_slot_is_normalised_to_the_recorded_form(conn):
+    seed_accepted(conn)
+    out = run(conn, FakeSender(), slot="8:30")
+    assert out.status == "sent" and out.slot == "08:30"
+    assert ("08:30", "2026-11-07") in recorded_slots(conn, "2026-11-06")
+    assert run(conn, FakeSender(), slot="8:30").status == "not_due"
+
+
 def test_send_records_skipped_slots(conn):
     run(conn, FakeSender())
     rows = {(r["slot"], r["local_date"]): r["status"] for r in conn.execute("SELECT * FROM digests")}
@@ -158,8 +167,8 @@ def test_recording_a_slot_that_already_exists_does_not_raise(conn):  # a concurr
     conn.commit()
     out = run(conn, FakeSender(), slot="19:30")  # the recorded slot is not due again
     assert out.status == "not_due"
-    from repka.digest.run import _record_sent
     from repka.digest.build import build_digest
+    from repka.digest.run import _record_sent
 
     digest = build_digest(conn, [DOMAIN], NOW, CFG.digest, *DUE)
     _record_sent(conn, digest, NOW)  # IntegrityError before the fix
@@ -302,3 +311,82 @@ def test_cli_more_conflicts_with_send(home, capsys):
         main(["digest", "--more", "--send"])
     assert exc.value.code == 2
     assert "not allowed with" in capsys.readouterr().err
+
+
+class SendsThenCrashes:
+    """Delivers the message, then dies before run_digest can record anything."""
+
+    def __init__(self):
+        self.calls = []
+
+    def send(self, parts):
+        self.calls.append(parts)
+        raise RuntimeError("process died after the message went out")
+
+
+def slot_status(conn):
+    row = conn.execute("SELECT status FROM digests WHERE slot = '19:30' AND local_date = ?", (DUE[1],)).fetchone()
+    return row and row["status"]
+
+
+def test_crash_after_send_does_not_send_again(conn):
+    event = seed_accepted(conn)
+    crashing = SendsThenCrashes()
+    with pytest.raises(RuntimeError):
+        run(conn, crashing)
+    assert len(crashing.calls) == 1
+    assert slot_status(conn) == "sending"  # claimed before the send, so the slot is closed
+    assert DUE in recorded_slots(conn, "2026-11-06")
+    again = FakeSender()
+    assert run(conn, again).status == "not_due" and again.calls == []
+    assert run(conn, again, slot="19:30").status == "not_due" and again.calls == []
+    # events are not stamped: the items are shown again by the NEXT slot rather than lost
+    assert conn.execute("SELECT digest_id FROM events WHERE id = ?", (event,)).fetchone()[0] is None
+
+
+def test_record_failure_after_send_is_reported_and_not_resent(conn, monkeypatch, capsys):
+    seed_accepted(conn)
+
+    def broken(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(run_mod, "_record_sent", broken)
+    out = run(conn, FakeSender())
+    assert out.status == "sent" and "not recorded" in out.error and "database is locked" in out.error
+    assert "not recorded" in capsys.readouterr().err
+    assert slot_status(conn) == "sending"
+    again = FakeSender()
+    assert run(conn, again).status == "not_due" and again.calls == []
+
+
+def test_timeout_means_delivery_unknown_and_is_not_retried(conn):
+    seed_accepted(conn)
+    out = run(conn, FakeSender(SendResult(ok=False, sent=0, error="TimeoutError: no answer", delivery_unknown=True)))
+    assert out.status == "failed" and "delivery unknown" in out.error and out.delivery_unknown
+    assert slot_status(conn) == "unknown"
+    again = FakeSender()
+    assert run(conn, again).status == "not_due" and again.calls == []
+
+
+def test_definite_failure_leaves_no_row_behind(conn):
+    seed_accepted(conn)
+    assert run(conn, FakeSender(SendResult(ok=False, sent=0, error="flood wait"))).status == "failed"
+    assert slot_status(conn) is None
+
+
+def test_failure_messages_tell_open_from_closed_slot(capsys):
+    from repka.pipeline import PassReport
+    from repka.run_cli import _digest_line, _releases_line
+
+    sure = run_mod.DigestOutcome("failed", "19:30", DUE[1], 1, ["x"], "flood wait")
+    unsure = run_mod.DigestOutcome("failed", "19:30", DUE[1], 1, ["x"], "timeout (delivery unknown, not retried)", delivery_unknown=True)
+    assert "stays open" in _digest_line(PassReport("partial", digest=sure))
+    assert "stays open" in _releases_line(PassReport("partial", releases=sure))
+    for line in (_digest_line(PassReport("partial", digest=unsure)), _releases_line(PassReport("partial", releases=unsure))):
+        assert "stays open" not in line and "could not be confirmed" in line and "will not be retried" in line
+    assert digest_cli._report(sure, None) == 1
+    err = capsys.readouterr().err
+    assert "stays open for the next run" in err
+    assert digest_cli._report(unsure, None) == 1
+    err = capsys.readouterr().err
+    assert "stays open" not in err and "could not be confirmed" in err and "check the Telegram chat" in err

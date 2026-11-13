@@ -8,7 +8,7 @@ from repka import config
 from repka.cli import main
 from repka.notify import cli as notify_cli
 from repka.notify.mcp_client import GuardedSession, ToolNotAllowed
-from repka.notify.telegram_user import TelegramUserSender, deliver_parts
+from repka.notify.telegram_user import SendResult, TelegramUserSender, deliver_parts
 
 
 class FakeSession:
@@ -135,3 +135,28 @@ def test_notify_test_dry_run_prints_without_session(home, capsys, no_sender):
     assert main(["notify", "test", "a <b> & c", "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "a &lt;b&gt; &amp; c" in out and "me" in out
+
+
+def test_notify_test_text_over_the_telegram_limit_is_split(home, capsys, no_sender):
+    text = "\n".join(["x" * 3000, "y" * 3000])
+    assert main(["notify", "test", text, "--dry-run"]) == 0
+    assert "--- part 2/2 ---" in capsys.readouterr().out
+
+
+def test_notify_test_failure_text_is_printable(home, capsys, monkeypatch):
+    (home / ".config.yaml").write_text("notify:\n  enabled: true\n")
+    monkeypatch.setattr(config, "telegram_credentials", lambda: None)
+    monkeypatch.setattr(config, "require_session", lambda: None)
+    failing = SendResult(ok=False, sent=0, error="boom \x1b]0;pwned\x07\x1b[31m")
+    monkeypatch.setattr(notify_cli, "TelegramUserSender", lambda *_a: SimpleNamespace(send=lambda _parts: failing))
+    assert main(["notify", "test", "hi"]) == 1
+    err = capsys.readouterr().err
+    assert "boom" in err and "\x1b" not in err and "\x07" not in err
+
+
+def test_timeout_marks_delivery_unknown_but_other_errors_do_not():
+    timed_out = run(FakeSession(raises=TimeoutError("MCP tool 'send_message' did not answer")), ["a"])
+    assert not timed_out.ok and timed_out.sent == 0 and timed_out.delivery_unknown
+    refused = run(FakeSession(fail_at=1), ["a"])
+    assert not refused.ok and not refused.delivery_unknown
+    assert not run(FakeSession(raises=ValueError("boom")), ["a"]).delivery_unknown

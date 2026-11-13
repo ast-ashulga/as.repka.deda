@@ -125,7 +125,10 @@ class GitHubClient:
         resp = self._request("GET", "/user")
         self._expect_ok(resp, "GET /user")
         raw = resp.headers.get("github-authentication-token-expiration")
-        return AuthInfo(login=resp.json()["login"], expires_at=_parse_expiry(raw))
+        body = self._json(resp, "GET /user")
+        if not isinstance(body, dict) or "login" not in body:
+            raise GitHubError(f"GET /user returned an unexpected body (HTTP {resp.status_code})")
+        return AuthInfo(login=body["login"], expires_at=_parse_expiry(raw))
 
     def search_repos(
         self, q: str, page: int = 1, per_page: int | None = None, sort: str = "stars", order: str = "desc"
@@ -139,7 +142,9 @@ class GitHubClient:
         }
         resp = self._request("GET", "/search/repositories", params=params, search=True)
         self._expect_ok(resp, "GET /search/repositories")
-        body = resp.json()
+        body = self._json(resp, "GET /search/repositories")
+        if not isinstance(body, dict) or "total_count" not in body:
+            raise GitHubError(f"GET /search/repositories returned an unexpected body (HTTP {resp.status_code})")
         return SearchPage(
             total_count=int(body["total_count"]),
             incomplete=bool(body.get("incomplete_results", False)),
@@ -173,7 +178,7 @@ class GitHubClient:
             page = _page_of(last["url"]) if last else None
             if page is not None:
                 return str(page)
-            return str(len(resp.json()))
+            return str(len(self._json(resp, f"GET contributors of {full_name}")))
 
         resp, value = self._cached_get(
             f"/repos/{full_name}/contributors", {"per_page": 1, "anon": "true"}, derive=derive
@@ -189,7 +194,8 @@ class GitHubClient:
 
     def participation(self, full_name: str) -> list[int] | None:
         def derive(resp: httpx.Response) -> str:
-            series = resp.json().get("all")
+            body = self._json(resp, f"GET participation of {full_name}")
+            series = body.get("all") if isinstance(body, dict) else None
             return json.dumps(series) if series is not None else "null"
 
         resp, value = self._cached_get(f"/repos/{full_name}/stats/participation", None, derive=derive)
@@ -228,6 +234,14 @@ class GitHubClient:
     def _error_text(errors: list[dict]) -> str:
         return "; ".join(str(e.get("message", e)) for e in errors)[:300]
 
+    @staticmethod
+    def _json(resp: httpx.Response, what: str) -> Any:
+        """The JSON body; an empty or non-JSON one (an HTML error page behind a 200) is a GitHubError, not a crash."""
+        try:
+            return resp.json()
+        except ValueError:
+            raise GitHubError(f"{what} returned a non-JSON body (HTTP {resp.status_code})") from None
+
     def _expect_ok(self, resp: httpx.Response, what: str) -> None:
         if resp.status_code >= 400:
             raise GitHubError(self._redact(f"{what} failed: HTTP {resp.status_code} {resp.text[:200]}"))
@@ -265,7 +279,7 @@ class GitHubClient:
         remaining = resp.headers.get("x-ratelimit-remaining")
         text = resp.text.lower()
         if ("secondary" in text and "rate limit" in text) or remaining == "0":
-            return True, None  # stop the run cleanly (RF1), even if Retry-After is short
+            return True, None  # stop the run cleanly, even if Retry-After is short
         if retry_after is not None:
             return True, retry_after if retry_after <= MAX_SHORT_RETRY_AFTER else None
         return resp.status_code == 429, None

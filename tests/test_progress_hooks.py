@@ -5,9 +5,11 @@ import textwrap
 from datetime import UTC, datetime
 
 import pytest
+from helpers_digest import add_repo, add_verdict, make_db
+from test_embed import FakeEmbedder
+from test_triage import DOMAIN, THRESHOLDS, FakeBackend, questions
 
 import repka.collect as collect_mod
-from helpers_digest import add_repo, add_verdict, make_db
 from repka.config import AppConfig
 from repka.domain.schema import Domain, SearchSpec
 from repka.embed.embed import embed_domain
@@ -18,8 +20,6 @@ from repka.progress.render import JsonlRenderer
 from repka.store.db import connect, migrate
 from repka.triage import triage as triage_mod
 from repka.triage.deciders import ModelSpec, run_worker
-from test_embed import FakeEmbedder
-from test_triage import DOMAIN, THRESHOLDS, FakeBackend, questions
 
 NOW = datetime(2026, 11, 8, 8, 0, tzinfo=UTC)
 

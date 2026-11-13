@@ -79,7 +79,7 @@ if not db_path().exists():
 try:
     domains = load_domains()
 except ConfigError as exc:
-    st.error(f"Domain files are invalid: {exc}")
+    st.error(f"Domain files are invalid: {printable(str(exc))}")
     st.stop()
 if not domains:
     st.info("No domains yet. Add one with `repka domain new`.")
@@ -109,10 +109,13 @@ try:
                    "Delta 7d is n/a until two snapshots exist.")
         gap = data.gap_after(next((d.scan_every for d in domains if d.id == domain_id), DEFAULT_SCAN_EVERY))
         top_repos = repos.head(MAX_SERIES)
-        options = top_repos["full_name"].tolist()
-        picked = st.multiselect("Repos", options, default=options[:3], max_selections=MAX_SERIES)
-        picked_ids = top_repos.loc[top_repos["full_name"].isin(picked), "repo_id"]
-        series_colors = {name: theme["series"][i] for i, name in enumerate(options) if name in picked}
+        labels = {int(i): name for i, name in zip(top_repos["repo_id"], top_repos["full_name"], strict=True)}
+        options = list(labels)  # the widget works on repo ids: a name can repeat or change
+        picked_ids = st.multiselect(
+            "Repos", options, default=options[:3], max_selections=MAX_SERIES, format_func=labels.get
+        )
+        picked = [labels[i] for i in picked_ids]
+        series_colors = {labels[i]: theme["series"][n] for n, i in enumerate(options) if i in picked_ids}
         if picked:
             series = data.with_gaps(history[history["repo_id"].isin(picked_ids)], "repo_id", "taken_at", "stars", gap)
             left, right = st.columns(2)
@@ -156,8 +159,9 @@ try:
         # (d) tech stack: dependency changes per repo, and dependency popularity in the domain
         st.subheader("Stack")
         st.caption("Dependencies added or removed per key-file version. Popularity counts repos in this domain.")
-        repo_name = st.selectbox("Repo", repos["full_name"].tolist(), key="stack_repo")
-        stack = data.stack_history(conn, int(repos.loc[repos["full_name"] == repo_name, "repo_id"].iloc[0]))
+        stack_labels = {int(i): name for i, name in zip(repos["repo_id"], repos["full_name"], strict=True)}
+        stack_repo_id = st.selectbox("Repo", list(stack_labels), format_func=stack_labels.get, key="stack_repo")
+        stack = data.stack_history(conn, stack_repo_id)
         if stack.empty:
             st.info("No dependency changes recorded for this repo yet.")
         else:
@@ -175,4 +179,4 @@ try:
                             theme["series"][: len(order)], theme),
             )
 except sqlite3.Error as exc:
-    st.error(f"Could not read the database (run `repka db migrate`?): {exc}")
+    st.error(f"Could not read the database (run `repka db migrate`?): {printable(str(exc))}")

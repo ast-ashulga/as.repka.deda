@@ -5,23 +5,10 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 
 from repka.models import Event, KeyFile, RepoHit, Snapshot
-from repka.store.db import utcnow
-
-
-def _iso(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _parse(value: str | None) -> datetime | None:
-    if value is None:
-        return None
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+from repka.store.db import iso_or_none, parse_iso, utcnow
 
 
 def upsert_repo(conn: sqlite3.Connection, hit: RepoHit, now: str) -> bool:
@@ -59,8 +46,8 @@ def upsert_repo(conn: sqlite3.Connection, hit: RepoHit, now: str) -> bool:
             "topics_json": json.dumps(list(hit.topics)),
             "license": hit.license,
             "is_fork": int(hit.is_fork),
-            "created_at": _iso(hit.created_at),
-            "pushed_at": _iso(hit.pushed_at),
+            "created_at": iso_or_none(hit.created_at),
+            "pushed_at": iso_or_none(hit.pushed_at),
             "archived": int(hit.archived),
             "now": now,
         },
@@ -116,7 +103,7 @@ def insert_snapshot(conn: sqlite3.Connection, s: Snapshot) -> None:
         """,
         {
             "repo_id": s.repo_id,
-            "taken_at": _iso(s.taken_at),
+            "taken_at": iso_or_none(s.taken_at),
             "stars": s.stars,
             "forks": s.forks,
             "open_issues": s.open_issues,
@@ -127,7 +114,7 @@ def insert_snapshot(conn: sqlite3.Connection, s: Snapshot) -> None:
             "active_weeks_12": s.active_weeks_12,
             "releases_90d": s.releases_90d,
             "latest_release_tag": s.latest_release_tag,
-            "latest_release_at": _iso(s.latest_release_at),
+            "latest_release_at": iso_or_none(s.latest_release_at),
         },
     )
 
@@ -135,7 +122,7 @@ def insert_snapshot(conn: sqlite3.Connection, s: Snapshot) -> None:
 def _snapshot_from_row(row: sqlite3.Row) -> Snapshot:
     return Snapshot(
         repo_id=row["repo_id"],
-        taken_at=_parse(row["taken_at"]),
+        taken_at=parse_iso(row["taken_at"]),
         stars=row["stars"],
         forks=row["forks"],
         open_issues=row["open_issues"],
@@ -146,7 +133,7 @@ def _snapshot_from_row(row: sqlite3.Row) -> Snapshot:
         active_weeks_12=row["active_weeks_12"],
         releases_90d=row["releases_90d"],
         latest_release_tag=row["latest_release_tag"],
-        latest_release_at=_parse(row["latest_release_at"]),
+        latest_release_at=parse_iso(row["latest_release_at"]),
     )
 
 
@@ -221,7 +208,7 @@ def add_event(conn: sqlite3.Connection, e: Event) -> int:
         INSERT INTO events (repo_id, domain_id, kind, payload_json, detected_at)
         VALUES (?, ?, ?, ?, ?)
         """,
-        (e.repo_id, e.domain_id, e.kind, json.dumps(e.payload, sort_keys=True), _iso(e.detected_at)),
+        (e.repo_id, e.domain_id, e.kind, json.dumps(e.payload, sort_keys=True), iso_or_none(e.detected_at)),
     )
     return int(cur.lastrowid)
 

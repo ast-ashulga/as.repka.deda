@@ -11,12 +11,13 @@ from repka import config
 from repka.config import AppConfig, ConfigError, load_config
 from repka.digest.build import build_digest, pending_overflow
 from repka.digest.render import render_digest, split_messages
-from repka.digest.run import DigestOutcome, run_digest
-from repka.digest.slots import parse_slot
+from repka.digest.run import DigestOutcome, failure_note, run_digest
+from repka.digest.slots import normalize_slot, parse_slot
 from repka.domain.schema import load_domains
 from repka.notify.telegram_user import Sender, TelegramUserSender
 from repka.runlock import run_exclusive
 from repka.store.db import connect, migrate
+from repka.textutil import printable
 
 
 def make_sender(cfg: AppConfig) -> Sender:
@@ -61,10 +62,10 @@ def _old_schema(exc: sqlite3.OperationalError) -> ConfigError | None:
 
 
 def _more(args: argparse.Namespace) -> int:
-    """`--more`: the items waiting in the queue (new/found/release overflow, not stack or mover). Read-only."""
+    """`--more`: every unsent new/found/release item (not stack or mover), not just the overflow. Read-only."""
     cfg = load_config()
     if args.slot is not None:
-        parse_slot(args.slot)
+        args.slot = normalize_slot(args.slot)
     path = config.db_path()
     if not path.exists():
         raise ConfigError(f"no database at {path}; run `repka db migrate` first")
@@ -96,7 +97,7 @@ def _cmd_digest(args: argparse.Namespace) -> int:
 def _digest(args: argparse.Namespace) -> int:
     cfg = load_config()
     if args.slot is not None:
-        parse_slot(args.slot)
+        args.slot = normalize_slot(args.slot)
     if args.send:
         if not cfg.notify.enabled:
             raise ConfigError("notify.enabled is false: nothing is sent. Set `notify.enabled: true` in .config.yaml")
@@ -137,11 +138,11 @@ def _report(out: DigestOutcome, forced_slot: str | None) -> int:
         _print_parts(f"[preview] {where}: {out.item_count} item(s), {len(out.parts)} message(s)", out.parts)
         return 0
     if out.status == "failed":
-        print(f"error: send failed for {where}: {out.error}; the slot stays open for the next run", file=sys.stderr)
+        print(f"error: send failed for {where}: {printable(out.error or '')}; {failure_note(out)}", file=sys.stderr)
         return 1
     print(f"sent {where}: {out.item_count} item(s) in {len(out.parts)} message(s)")
     if out.error:
-        print(f"warning: a later message failed: {out.error}", file=sys.stderr)
+        print(f"warning: a later message failed: {printable(out.error)}", file=sys.stderr)
     return 0
 
 
@@ -151,12 +152,13 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="build the digest and print it (preview); --send delivers it to Telegram",
         description="Build the digest of pending events and print it as Telegram HTML. The default and --dry-run "
         "only preview: nothing is sent and nothing is written. --send delivers it and records the slot; "
-        "it needs `notify.enabled: true` in .config.yaml. --more lists the items waiting in the queue "
-        "(new/found/release that did not fit `max_items_per_domain`, not stack or mover); it is read-only.",
+        "it needs `notify.enabled: true` in .config.yaml. --more lists every unsent new/found/release item "
+        "(not stack changes or movers), including ones the next digest will show; items past "
+        "`max_items_per_domain` wait for a later digest only with `digest.insights` on. It is read-only.",
     )
     digest.add_argument("--slot", metavar="HH:MM", help="force this slot of today instead of the one that is due")
     mode = digest.add_mutually_exclusive_group()
     mode.add_argument("--send", action="store_true", help="send via Telegram and record the slot")
     mode.add_argument("--dry-run", action="store_true", help="preview only (this is the default)")
-    mode.add_argument("--more", action="store_true", help="list the items waiting in the queue (new/found/release overflow; not stack or mover); read-only")
+    mode.add_argument("--more", action="store_true", help="list unsent new/found/release items, not only the overflow (meaningful with digest.insights); read-only")
     digest.set_defaults(func=_cmd_digest)

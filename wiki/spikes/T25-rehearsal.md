@@ -1,10 +1,10 @@
 # T25 rehearsal: real GitHub, real decider, real Ollama, no Telegram
 
-[← Wiki home](../README.md) · [ROADMAP](../plans/ROADMAP.md) · Issue [#25](https://github.com/ast-ashulga/as.repka.deda/issues/25) · Plan: [M6 P1-T25](../plans/phase-1/M6-orchestration.md)
+[← Wiki home](../README.md)
 
 **Verdict: the pipeline works end to end against real services up to the digest preview; one blocking bug was found and fixed.**
 The Telegram delivery and the launchd agent were deliberately not exercised (human-only, see the last section).
-So the plan's acceptance line "a real digest delivered once" is **not yet met**: it needs the human steps below.
+So the original plan's acceptance line "a real digest delivered once" is **not yet met**: it needs the human steps below.
 
 ## Setup
 
@@ -105,4 +105,4 @@ governance tool): the thresholds `relevant 0.70, substance 2` are permissive; tu
 4. Telegram: put `REPKA_TG_API_ID` and `REPKA_TG_API_HASH` (from https://my.telegram.org) in `.env`; `uv run repka notify login`; `uv run repka notify test "hello"`; `uv run repka doctor --send` must be clean.
 5. Run `uv run repka run` once, let the baseline finish (several runs if `partial`), then change nothing and run `uv run repka run --send` shortly after a slot (08:30 or 19:30) with new activity; confirm one Telegram message; run it again and confirm no second message.
 6. `uv run repka schedule install --dry-run`, then `uv run repka schedule install`, `uv run repka schedule status`, `launchctl kickstart gui/$UID/com.repka.run`, check `logs/launchd.log`; `uv run repka schedule uninstall` if only a test.
-7. Start the 7-day [Gate G1](../plans/ROADMAP.md#gate-g1-phase-1-is-stable).
+7. Start the 7-day Gate G1 of the [archived roadmap](../archive/plans/ROADMAP.md#gate-g1-phase-1-is-stable).

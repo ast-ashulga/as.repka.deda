@@ -1,14 +1,17 @@
 """Preflight: everything `repka run` needs, checked up front, listed at once with the exact fix.
 
 `diagnose` returns one `Result` per check (ok, warn or error); `check` keeps only the problems as `Finding`s
-(errors first), which is what `repka run` stops on. Reads files and the environment only. The single network
-call is one `GET /user` through the injected `auth_probe`; no model, worker or Telegram session is started.
+(errors first), which is what `repka run` stops on. Reads files and the environment; without a token in `.env` it
+runs `gh auth token`. The only network calls are one `GET /user` to GitHub through the injected `auth_probe` and,
+when embedding is on, one `GET {embed.url}/api/tags` to the local Ollama through the injected `models_probe`.
+No model, worker or Telegram session is started.
 """
 
 from __future__ import annotations
 
 import os
 import shutil
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -20,7 +23,14 @@ import httpx
 from repka import config
 from repka.config import AppConfig, ConfigError
 from repka.domain.schema import Domain, load_domains
-from repka.github.client import FIX_ENV, FIX_GH, AuthError, AuthInfo, GitHubClient, GitHubError
+from repka.github.client import (
+    FIX_ENV,
+    FIX_GH,
+    AuthError,
+    AuthInfo,
+    GitHubClient,
+    GitHubError,
+)
 from repka.triage import deciders, triage
 
 EXPIRY_WARNING = timedelta(days=7)
@@ -273,6 +283,39 @@ def check_digest_flags(cfg: AppConfig) -> list[Result]:
         return []
     on, off = ("digest.insights", "digest.releases_message") if d.insights else ("digest.releases_message", "digest.insights")
     return [_warn("digest-flags", f"{on} is on but {off} is off", f"set `{off}` to true in .config.yaml, or set `{on}` to false")]
+
+
+# --- stuck digest claims ------------------------------------------------------------------------------
+
+
+def check_digest_claims(db: Path) -> list[Result]:
+    """Warn about `digests` rows left in `sending` or `unknown`: a message that may or may not have gone out, whose
+    slot stays closed. Read-only; no result when there is no database (or it cannot be read)."""
+    if not db.exists():
+        return []
+    try:
+        conn = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT id, slot, local_date, status FROM digests WHERE status IN ('sending', 'unknown') ORDER BY id"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    if not rows:
+        return [_ok("digest-claims", "no digest slot is stuck")]
+    return [
+        _warn(
+            "digest-claims",
+            f"digest slot {slot} of {date} is closed with status '{status}': Telegram may not have delivered it "
+            "(it will not be retried, to avoid a duplicate)",
+            f"check the Telegram chat; if the message is missing, reopen the slot with "
+            f"`sqlite3 {db} \"DELETE FROM digests WHERE id = {row_id} AND status IN ('sending', 'unknown')\"` "
+            "(only while no `repka run` is in progress); if it arrived, leave the row as it is",
+        )
+        for row_id, slot, date, status in rows
+    ]
 
 
 # --- public API -------------------------------------------------------------------------------------

@@ -114,3 +114,23 @@ def test_only_one_models_vectors_are_projected(conn):
     ids_m1 = json.loads(data.compute_landscape(conn, "d1", "m1")["payload"])["repo_ids"]
     ids_m2 = json.loads(data.compute_landscape(conn, "d1", "m2")["payload"])["repo_ids"]
     assert ids_m1 == list(range(1, 21)) and ids_m2 == [1, 2, 3, 4, 5]
+
+
+def test_a_locked_database_is_not_reported_as_not_computed(conn, monkeypatch):
+    import sqlite3
+
+    class Locked:
+        """A connection whose landscape_cache read fails like a busy database."""
+
+        def __init__(self, inner):
+            self._inner = inner
+
+        def execute(self, sql, *args):
+            if "landscape_cache" in sql:
+                raise sqlite3.OperationalError("database is locked")
+            return self._inner.execute(sql, *args)
+
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        data.landscape_frame(Locked(conn), "d1", "m1")
+    conn.execute("DROP TABLE landscape_cache")  # an unmigrated database still answers "not_computed"
+    assert data.landscape_frame(conn, "d1", "m1") == (None, "not_computed")

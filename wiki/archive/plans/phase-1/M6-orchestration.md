@@ -4,7 +4,7 @@
 
 Goal of the milestone: `repka run` performs one full, safe pass (collect → triage → embed → digest); launchd runs it hourly; `repka doctor` tells a new user exactly what is missing; an end-to-end test and README prove it all fits together.
 
-Contract: [architecture § 1 and § 5](../../spec/architecture.md#5-pipeline-semantics) · ADR: [ADR-006](../../spec/decisions.md#adr-006-scheduling--hourly-launchd-pass--slot-logic-inside-the-app) · Reference: `as.tegerun.cli/src/tegerun/runner.py`, `preflight.py`
+Contract: [architecture § 1 and § 5](../../../spec/architecture.md#5-pipeline-semantics) · ADR: [ADR-006](../../../spec/decisions.md#adr-006-scheduling--hourly-launchd-pass--slot-logic-inside-the-app)
 
 ---
 

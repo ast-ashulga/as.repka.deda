@@ -1,7 +1,7 @@
 """Embedding vectors: float32 BLOBs in `embeddings` (source of truth) and numpy brute-force KNN.
 
-No vec0 index: P1-T02 measured sqlite-vec as 19-28x slower than numpy at 5k-50k vectors
-(wiki/spikes/T02-sqlite-vec.md). Vectors of different models are never mixed.
+No vec0 index: sqlite-vec measured 19-28x slower than numpy at 5k-50k vectors.
+Vectors of different models are never mixed.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
-"""Spike P1-T02: does sqlite-vec load and answer KNN under this uv Python build?
+"""Does sqlite-vec load and answer KNN under this uv Python build?
 
 Skips (with the reason) when the interpreter cannot load SQLite extensions;
-that outcome is a NO-GO for the vec0 index (numpy fallback, ADR-002).
+repka does not use a vec0 index (vectors are stored as BLOBs and compared with numpy), so this is informational.
 """
 
 import sqlite3

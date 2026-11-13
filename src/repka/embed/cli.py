@@ -7,8 +7,9 @@ import json
 import sys
 
 from repka import config
+from repka.cliutil import positive_int
 from repka.config import AppConfig, ConfigError, load_config
-from repka.domain.schema import Domain, get_domain, load_domains
+from repka.domain.schema import select_domains
 from repka.embed.embed import embed_domain
 from repka.embed.ollama import EmbedderUnavailable, OllamaEmbedder
 from repka.runlock import run_exclusive
@@ -27,24 +28,6 @@ SIMILAR_EPILOG = """\
 Lists the repos whose stored embedding is closest to the given repo (cosine similarity, most similar first).
 Uses only the database: Ollama does not have to be running. Run `repka embed` first.
 """
-
-
-def _positive(value: str) -> int:
-    try:
-        n = int(value)
-    except ValueError:
-        n = 0
-    if n < 1:
-        raise argparse.ArgumentTypeError(f"must be a positive integer (got {value!r})")
-    return n
-
-
-def _select_domains(domain_id: str | None) -> list[Domain]:
-    if domain_id:
-        return [
-            get_domain(domain_id)
-        ]  # explicit: runs even if the domain is not enabled
-    return [d for d in load_domains() if d.enabled]
 
 
 def make_embedder(cfg: AppConfig) -> OllamaEmbedder:
@@ -66,7 +49,7 @@ def _cmd_embed(args: argparse.Namespace) -> int:
 
 def _embed(args: argparse.Namespace) -> int:
     cfg = load_config()
-    domains = _select_domains(args.domain)
+    domains = select_domains(args.domain)
     if not domains:
         print(
             "no enabled domains: nothing to embed (see: repka domain list)",
@@ -205,7 +188,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     )
     similar.add_argument(
         "-k",
-        type=_positive,
+        type=positive_int,
         default=10,
         metavar="N",
         help="how many neighbours (default 10)",

@@ -10,12 +10,29 @@ import sys
 import time
 from datetime import UTC, datetime
 
-from repka.collect import CollectReport, DomainReport, collect_domains, due_domains, iso, next_due, parse_iso
-from repka.config import ConfigError, AppConfig, db_path, domains_dir, github_token, github_token_source, load_config, state_dir
+from repka.cliutil import stderr_progress
+from repka.collect import (
+    CollectReport,
+    DomainReport,
+    collect_domains,
+    due_domains,
+    iso,
+    next_due,
+    parse_iso,
+)
+from repka.config import (
+    AppConfig,
+    ConfigError,
+    db_path,
+    domains_dir,
+    github_token,
+    github_token_source,
+    load_config,
+)
 from repka.domain.matrix import build_queries, scan_window
 from repka.domain.schema import Domain, get_domain, load_domains
 from repka.github.client import GitHubClient, GitHubError
-from repka.runlock import LockBusy, RunLock
+from repka.runlock import run_exclusive
 from repka.store import repo
 from repka.store.db import connect, migrate
 from repka.store.repo import DomainState, SqliteEtagCache
@@ -27,10 +44,6 @@ def make_client(cfg: AppConfig, conn: sqlite3.Connection) -> GitHubClient:
     return GitHubClient(
         github_token(), cfg.github, cache=SqliteEtagCache(conn), token_source=github_token_source()
     )
-
-
-def _progress(message: str) -> None:
-    print(message, file=sys.stderr, flush=True)
 
 
 def _states(domains: list[Domain], conn: sqlite3.Connection | None) -> dict[str, DomainState]:
@@ -145,12 +158,7 @@ def _collect(args: argparse.Namespace) -> int:
         due = candidates if forced else due_domains(candidates, states, now)
         return _dry_run(due, states, cfg, now, _not_due(candidates, due, states), args.json)
 
-    try:
-        with RunLock(state_dir() / "run.lock"):
-            return _collect_locked(args, cfg, now, candidates, forced)
-    except LockBusy as exc:
-        print(f"another repka run is in progress ({exc}); nothing done", file=sys.stderr)
-        return 0
+    return run_exclusive(lambda: _collect_locked(args, cfg, now, candidates, forced))
 
 
 def _collect_locked(args: argparse.Namespace, cfg: AppConfig, now: datetime, candidates: list[Domain], forced: bool) -> int:
@@ -177,7 +185,7 @@ def _collect_locked(args: argparse.Namespace, cfg: AppConfig, now: datetime, can
         conn.commit()
         started = time.monotonic()
         try:
-            report = collect_domains(client, conn, due, cfg, now, progress=_progress, all_domains=candidates)
+            report = collect_domains(client, conn, due, cfg, now, progress=stderr_progress, all_domains=candidates)
         except Exception as exc:
             repo.finish_run(conn, run_id, "failed", {}, str(exc))
             conn.commit()
@@ -190,7 +198,7 @@ def _collect_locked(args: argparse.Namespace, cfg: AppConfig, now: datetime, can
         repo.finish_run(conn, run_id, status, {"domains": [dataclasses.asdict(r) for r in report.domains]}, errors)
         conn.commit()
         _summary(report, not_due, time.monotonic() - started, args.json)
-        return 0
+        return 1 if any(r.github_error for r in report.domains) else 0  # a rate limit is a clean stop (0)
     finally:
         if client is not None:
             client.close()
@@ -205,7 +213,8 @@ def register(sub: argparse._SubParsersAction) -> None:
             "Search every due, enabled domain (or only --domain ID, even if not due), then enrich the found repos "
             "with metrics, releases and key files. The first scan of a domain is a silent baseline (no new-repo "
             "events). Progress goes to stderr, the summary to stdout. A GitHub rate limit stops the run cleanly: "
-            "everything collected is kept and the next run continues (exit 0, status partial)."
+            "everything collected is kept and the next run continues (exit 0, status partial). Any other GitHub error "
+            "stops that domain (the others still run), progress is kept and the exit code is 1."
         ),
     )
     collect.add_argument("--domain", metavar="ID", help="collect only this domain, even if it is not due")

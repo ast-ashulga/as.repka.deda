@@ -82,6 +82,20 @@ def migrate(conn: sqlite3.Connection) -> int:
     return current
 
 
+def iso(value: datetime) -> str:
+    """UTC ISO-8601 with seconds, e.g. 2026-11-07T08:30:00Z: the form every timestamp column holds."""
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def iso_or_none(value: datetime | None) -> str | None:
+    return None if value is None else iso(value)
+
+
+def parse_iso(value: str | None) -> datetime | None:
+    """Inverse of `iso`; None stays None."""
+    return None if value is None else datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
 def utcnow() -> str:
     """Current time as UTC ISO-8601 with seconds, e.g. 2026-11-07T08:30:00Z."""
     return datetime.now(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")

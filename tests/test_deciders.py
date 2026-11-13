@@ -190,3 +190,82 @@ def test_malformed_answer_is_an_error_not_a_verdict(deciders_dir):
     answers, errors = backend.decide(items(2), qset())
     assert list(answers) == ["mcp:101"]
     assert "malformed answer" in errors["mcp:100"]
+
+
+def test_nan_answer_is_an_error_not_a_verdict(deciders_dir):
+    backend = LocalWorkerBackend(spec("nan_answer"), deciders_dir, 60, False)
+    answers, errors = backend.decide(items(2), qset())
+    assert list(answers) == ["mcp:101"]
+    assert "malformed answer" in errors["mcp:100"] and "got nan" in errors["mcp:100"]
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), 1.5, -0.2])
+def test_noul_rejects_non_finite_and_out_of_range(bad):
+    q = qset().questions["relevant"]
+    with pytest.raises(ValueError):
+        normalize_answer(q, {"noul": bad})
+    assert normalize_answer(q, {"noul": 0.0})["p"] == 0.0 and normalize_answer(q, {"noul": 1.0})["p"] == 1.0
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda a: a.update(score=float("nan")),
+        lambda a: a.update(score=9.0),  # 5 levels: 0..4
+        lambda a: a.update(score=-1.0),
+        lambda a: a.update(confidence=float("inf")),
+        lambda a: a.update(confidence=1.7),
+        lambda a: a["probabilities"].update({"0": float("nan")}),
+        lambda a: a["probabilities"].update({"1": 2.0}),
+        lambda a: a["probabilities"].update({"7": 0.1}),  # level outside the question's levels
+    ],
+)
+def test_score_rejects_invalid_numbers(mutate):
+    q = qset().questions["substance"]
+    raw = json.loads((FIXTURES / "out_d1.json").read_text())["results"][0]["answers"]["substance"]
+    mutate(raw)
+    with pytest.raises(ValueError):
+        normalize_answer(q, raw)
+
+
+def test_choice_rejects_invalid_numbers():
+    q = qset().questions["kind"]
+    raw = json.loads((FIXTURES / "out_d1.json").read_text())["results"][0]["answers"]["kind"]
+    for key, bad in (("confidence", float("nan")), ("confidence", -0.1)):
+        with pytest.raises(ValueError):
+            normalize_answer(q, {**raw, key: bad})
+    with pytest.raises(ValueError):
+        normalize_answer(q, {**raw, "probabilities": {**raw["probabilities"], "tool": float("inf")}})
+
+
+ROOT = Path(__file__).resolve().parents[1]
+GOOD = "0123456789abcdef" * 2 + "01234567"  # 40 hex
+
+
+def test_fetch_refuses_an_unpinned_revision():
+    import importlib.util
+
+    spec_ = importlib.util.spec_from_file_location("repka_fetch", ROOT / "deciders" / "fetch.py")
+    fetch = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(fetch)  # needs no huggingface_hub: it is imported inside main()
+    assert fetch.pinned(GOOD)
+    for bad in ("main", "", None, "abc123", "A" * 40, "a" * 41, 123):
+        assert not fetch.pinned(bad)
+
+
+@pytest.mark.parametrize("worker", ["d1_worker", "pplx_worker"])
+def test_workers_refuse_a_moving_revision(worker, tmp_path):
+    import subprocess
+
+    for rev in ("main", None, "abc123"):
+        cfg = {"repo": "org/m", "online": False}
+        if rev is not None:
+            cfg["revision"] = rev
+        done = subprocess.run(
+            [sys.executable, "-I", str(ROOT / "deciders" / "workers" / f"{worker}.py"),
+             "--config", json.dumps(cfg), "--requests", str(tmp_path / "r.json"), "--out", str(tmp_path / "o.json")],
+            capture_output=True, text=True, cwd=tmp_path, timeout=60, check=False,
+        )  # fmt: skip
+        assert done.returncode != 0
+        assert "40-character commit hash" in done.stderr
+        assert not (tmp_path / "o.json").exists()

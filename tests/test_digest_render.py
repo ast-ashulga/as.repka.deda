@@ -75,6 +75,14 @@ def test_split_never_exceeds_limit_or_breaks_lines():
     assert split_messages(["a", "b"]) == ["a\nb"]
 
 
+def test_domain_header_moves_to_the_message_with_its_first_item():
+    lines = ["<b>repka</b> · digest", "", "<b>d1</b>", "x" * 20, "", "<b>d2</b>", "y" * 20, "z" * 20]
+    parts = split_messages(lines, limit=70)  # d2 fits at 64 characters, its first item (+21) does not
+    assert parts[0].splitlines()[-1] == "x" * 20  # d2 would have ended the first message: it moves on
+    assert parts[1].startswith("<b>d2</b>\n" + "y" * 20)
+    assert all(not p.splitlines()[-1].startswith("<b>") for p in parts)
+
+
 def test_slot_label():
     assert slot_label("08:30") == "morning"
     assert slot_label("11:59") == "morning"

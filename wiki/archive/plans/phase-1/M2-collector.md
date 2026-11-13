@@ -4,7 +4,7 @@
 
 Goal of the milestone: `repka collect` fills SQLite with repositories found by each due domain's query matrix, plus metric snapshots, key-file versions, dependency stacks and events, and survives rate limits.
 
-Contract: [architecture § 4 data model](../../spec/architecture.md#4-data-model-sqlite), [§ 5 pipeline](../../spec/architecture.md#5-pipeline-semantics) · Research: [github-api](../../research/github-api.md) · ADR: [ADR-007](../../spec/decisions.md#adr-007-github-data-access--rest-search--batched-graphql-enrichment)
+Contract: [architecture § 4 data model](../../../spec/architecture.md#4-data-model-sqlite), [§ 5 pipeline](../../../spec/architecture.md#5-pipeline-semantics) · Research: [github-api](../../../research/github-api.md) · ADR: [ADR-007](../../../spec/decisions.md#adr-007-github-data-access--rest-search--batched-graphql-enrichment)
 
 Fixtures: recorded GitHub JSON lives in `tests/fixtures/github/`. Record them once with `gh api` (strip nothing secret — responses contain no token), keep them small (≤ 5 items per page) and name them after the scenario.
 

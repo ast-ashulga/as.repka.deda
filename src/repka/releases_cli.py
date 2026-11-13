@@ -14,10 +14,9 @@ from datetime import UTC, datetime
 
 from repka import config
 from repka.config import ConfigError, parse_duration
-from repka.digest.build import _latest_verdicts, _stars
+from repka.digest.build import current_stars, latest_verdicts
 from repka.domain.schema import Domain, load_domains
-from repka.store.db import connect
-from repka.store.repo import _iso
+from repka.store.db import connect, iso_or_none
 from repka.textutil import printable
 
 DEFAULT_SINCE = "24h"
@@ -32,9 +31,9 @@ class _Release:
     published_at: str
 
 
-def _releases(conn: sqlite3.Connection, domain: Domain, since: datetime) -> list[_Release]:
+def releases_since(conn: sqlite3.Connection, domain: Domain, since: datetime) -> list[_Release]:
     """Latest release event per repo in the window, accepted repos only, most stars first."""
-    verdicts = _latest_verdicts(conn, domain.id)
+    verdicts = latest_verdicts(conn, domain.id)
     rows = conn.execute(
         """
         SELECT e.repo_id, e.payload_json, r.full_name
@@ -42,7 +41,7 @@ def _releases(conn: sqlite3.Connection, domain: Domain, since: datetime) -> list
         WHERE e.domain_id = ? AND e.kind = 'release' AND e.detected_at >= ?
         ORDER BY e.id
         """,
-        (domain.id, _iso(since)),
+        (domain.id, iso_or_none(since)),
     ).fetchall()
     latest: dict[int, sqlite3.Row] = {}
     for row in rows:  # ascending id: the last row of a repo is its newest event
@@ -55,7 +54,7 @@ def _releases(conn: sqlite3.Connection, domain: Domain, since: datetime) -> list
         payload = _payload(row["payload_json"])
         out.append(
             _Release(
-                stars=_stars(conn, repo_id),
+                stars=current_stars(conn, repo_id),
                 repo_id=repo_id,
                 full_name=printable(str(row["full_name"])),
                 tag=printable(str(payload.get("tag") or "-")),
@@ -93,7 +92,7 @@ def _cmd_releases(args: argparse.Namespace) -> int:
             if index:
                 print()
             print(f"== {printable(domain.name)} ({printable(domain.id)}) ==")
-            found = _releases(conn, domain, cutoff)
+            found = releases_since(conn, domain, cutoff)
             if not found:
                 print(f"no releases in the last {args.since}")
             for rel in found:

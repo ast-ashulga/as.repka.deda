@@ -5,23 +5,33 @@ from __future__ import annotations
 import argparse
 import json
 
-from repka import preflight
-from repka.config import load_config
+from repka import config, preflight
+from repka.config import ConfigError, load_config
 
 EPILOG = """\
 One line per check: `ok`, `warn` or `error`, the check id, what was found and, for a problem, the exact fix.
 Errors would stop `repka run`; warnings would not. After the lines, a numbered to-do list repeats the problems
-(errors first). Reads files only; the one network call is GET /user to verify the GitHub token (a network
-failure is a warning). No model is loaded and nothing is sent.
+(errors first). Reads files and the environment; without a token in .env it runs `gh auth token`. Network calls:
+GET /user to GitHub to verify the token and, when embed.enabled is true, GET <embed.url>/api/tags on the local
+Ollama (a network failure in either is a warning). No model is loaded and nothing is sent.
+A digest slot stuck in `sending`/`unknown` (delivery not confirmed) is a warning with the fix.
 Exit 0 when there are no errors (warnings are fine), 2 when something must be fixed.
 --json prints {"ok", "errors", "warnings", "checks": [{"id", "status", "title", "fix"}]} on stdout.
 """
 
 
 def _doctor(args: argparse.Namespace) -> int:
-    cfg = load_config()
-    send = cfg.run.send or args.send
-    results = preflight.diagnose(cfg, send=send)
+    try:
+        cfg = load_config()
+    except ConfigError as exc:  # nothing else can be checked without settings: say so as a check, with the fix
+        results = [
+            preflight.Result(
+                "config", "error", f"settings cannot be loaded: {exc}",
+                "fix the setting named above in .config.yaml (docs/configuration.md lists them), then run `repka doctor` again",
+            )
+        ]  # fmt: skip
+    else:
+        results = [*preflight.diagnose(cfg, send=cfg.run.send or args.send), *preflight.check_digest_claims(config.db_path())]
     findings = preflight.findings_of(results)
     errors = sum(f.level == "error" for f in findings)
     warnings = len(findings) - errors

@@ -1,3 +1,4 @@
+import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -6,6 +7,7 @@ import pytest
 from helpers_digest import add_event, add_repo, add_verdict, make_db
 
 from repka.config import AppConfig, DigestConfig
+from repka.digest import releases as releases_mod
 from repka.digest.releases import build_releases, render_releases, run_releases
 from repka.digest.slots import recorded_slots
 from repka.domain.schema import Domain, SearchSpec
@@ -218,3 +220,50 @@ def test_main_digest_rows_do_not_make_releases_slot_recorded(conn):
     conn.execute("INSERT INTO digests (slot, local_date, status) VALUES ('09:00', '2026-11-07', 'sent')")
     seed(conn, 1, "v1")
     assert run(conn, FakeSender()).status == "sent"
+
+
+class SendsThenCrashes:
+    def __init__(self):
+        self.calls = []
+
+    def send(self, parts):
+        self.calls.append(parts)
+        raise RuntimeError("process died after the message went out")
+
+
+def slot_status(conn):
+    row = conn.execute("SELECT status FROM digests WHERE slot = ? AND local_date = ?", (SLOT_ROW, DUE[1])).fetchone()
+    return row and row["status"]
+
+
+def test_crash_after_send_does_not_send_again(conn):
+    seed(conn, 1, "v1")
+    crashing = SendsThenCrashes()
+    with pytest.raises(RuntimeError):
+        run(conn, crashing)
+    assert len(crashing.calls) == 1 and slot_status(conn) == "sending"
+    again = FakeSender()
+    assert run(conn, again).status == "not_due" and again.calls == []
+    assert conn.execute("SELECT COUNT(*) FROM events WHERE digest_id IS NOT NULL").fetchone()[0] == 0
+
+
+def test_record_failure_after_send_is_reported_and_not_resent(conn, monkeypatch, capsys):
+    seed(conn, 1, "v1")
+
+    def broken(*a, **k):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(releases_mod, "_record_sent", broken)
+    out = run(conn, FakeSender())
+    assert out.status == "sent" and "not recorded" in out.error
+    assert "not recorded" in capsys.readouterr().err
+    again = FakeSender()
+    assert run(conn, again).status == "not_due" and again.calls == []
+
+
+def test_timeout_means_delivery_unknown_and_is_not_retried(conn):
+    seed(conn, 1, "v1")
+    out = run(conn, FakeSender(SendResult(ok=False, sent=0, error="TimeoutError: x", delivery_unknown=True)))
+    assert out.status == "failed" and "delivery unknown" in out.error and slot_status(conn) == "unknown"
+    again = FakeSender()
+    assert run(conn, again).status == "not_due" and again.calls == []

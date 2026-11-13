@@ -28,7 +28,13 @@ from repka.domain.schema import (
     save_domain,
 )
 from repka.domain.suggest import suggest_keywords
-from repka.domain.wizard import DEFAULT_MIN_STARS, _parse_id, _parse_name, _parse_scan_every, _terms
+from repka.domain.wizard import (
+    DEFAULT_MIN_STARS,
+    _parse_id,
+    _parse_name,
+    _parse_scan_every,
+    _terms,
+)
 from repka.store.db import connect
 from repka.textutil import printable
 

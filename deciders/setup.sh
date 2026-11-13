@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# Prepare stand: two environments (different transformers versions) and, by flag, model weights.
+# Prepare the decider environments: two Python environments (different transformers versions) and, by flag, model weights.
 #
 #   ./setup.sh                                  # create .venv-liquid and .venv-pplx, install dependencies
 #   ./setup.sh --download d1-2B pplx-flash      # + download weights of selected models (names from models.yaml)
 #   ./setup.sh --code-only d1-2B pplx-flash     # download only code/configs (a few MB) — to read
 #                                               # executable model code before downloading weights
 #
-# Weight sizes: d1-2B ~4 GB, d1-3B ~6 GB (already in cache), pplx-flash ~9 GB (bf16).
+# Weight sizes: d1-2B ~4 GB, d1-3B ~6 GB, pplx-flash ~9 GB (bf16). Each Python environment (torch,
+# transformers) takes roughly another 1 GB.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+cd "$(dirname "$SELF")"
 MODE=""
 NAMES=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --download) MODE="full"; shift ;;
     --code-only) MODE="code"; shift ;;
-    -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$SELF"; exit 0 ;;
     -*) echo "Unknown argument: $1" >&2; exit 2 ;;
     *) NAMES+=("$1"); shift ;;
   esac

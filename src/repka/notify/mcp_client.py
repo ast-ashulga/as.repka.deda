@@ -41,7 +41,7 @@ class GuardedSession:
             raise ToolNotAllowed(f"MCP tool {name!r} is not allowed here (allowed: {', '.join(sorted(self._allow))})")
         try:
             return await asyncio.wait_for(self._session.call_tool(name, arguments), self._timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise TimeoutError(f"MCP tool {name!r} did not answer within {self._timeout:.0f}s") from None
 
 

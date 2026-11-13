@@ -2,35 +2,35 @@
 
 [← Wiki home](../README.md) · Next: [architecture](architecture.md) · [decisions](decisions.md)
 
-## 1. Original requirements (verbatim, RU)
+## 1. Original requirements (translated from the original Russian text)
 
-> **1. Цель и принципы проекта**
+> **1. Project goal and principles**
 >
-> Цель: Создать локальную утилиту для автоматического мониторинга, отслеживания трендов и анализа репозиториев GitHub в заданных технологических доменах.
+> Goal: Build a local utility that automatically monitors, tracks trends in and analyses GitHub repositories in given technology domains.
 >
-> Целевая платформа: macOS (оптимизация под запуск локальных моделей на Apple Silicon через MLX/Ollama, хранение данных в локальных файлах).
+> Target platform: macOS (optimised for running local models on Apple Silicon via MLX/Ollama, data stored in local files).
 >
-> Философия алертинга: Никаких спам-алертов в реальном времени. Только пакетные регулярные дайджесты.
+> Alerting philosophy: No real-time spam alerts. Only batched, regular digests.
 >
-> **2. Поэтапный план реализации**
+> **2. Phased implementation plan**
 >
-> **Часть 1: CLI-ядро и бэкенд-пайплайн (Без дашборда)** — автономный скрипт/демон, который собирает данные, фильтрует их и шлет отчеты.
-> - Интервьюирование и генерация запросов (Domain Profile Skill): скрипт (или интерактивный промпт) формирует поисковую матрицу для GitHub на основе детального описания области.
-> - Сбор данных с GitHub (Collector Engine): GitHub Search API с пагинацией и секционированием по датам/языкам для обхода ограничений. Сбор метрик: звезды, форки, контрибьюторы, регулярность коммитов, новые релизы и измененные ключевые файлы (pyproject.toml, package.json).
-> - Триаж и классификация (Deciders-модели): вместо общих LLM — легковесные Deciders-модели (jev-like, clef и т.п.) для бинарного триажа и быстрой классификации: «Релевантно ли это нашему домену? Есть ли здесь готовый инструмент/протокол или это мусор/пустышка?».
-> - Хранение (Local Data Store): локальная база SQLite + векторное расширение (sqlite-vss или DuckDB) для истории метрик и семантических эмбеддингов.
-> - Доставка отчетов (Telegram): структурированные пакетные дайджесты (утром/вечером) в Telegram-чат.
+> **Part 1: CLI core and backend pipeline (no dashboard)**: a standalone script/daemon that collects data, filters it and sends reports.
+> - Interviewing and query generation (Domain Profile Skill): a script (or an interactive prompt) builds a GitHub search matrix from a detailed description of the area.
+> - Data collection from GitHub (Collector Engine): GitHub Search API with pagination and partitioning by date/language to get around its limits. Metrics collected: stars, forks, contributors, commit regularity, new releases and changed key files (pyproject.toml, package.json).
+> - Triage and classification (Deciders models): instead of general-purpose LLMs, lightweight Deciders models (jev-like, clef and similar) for binary triage and fast classification: "Is this relevant to our domain? Is there a ready-made tool/protocol here, or is it junk/an empty shell?".
+> - Storage (Local Data Store): a local SQLite database plus a vector extension (sqlite-vss or DuckDB) for metric history and semantic embeddings.
+> - Report delivery (Telegram): structured batched digests (morning/evening) to a Telegram chat.
 >
-> **Часть 2: Дашборд и визуализация ландшафта** — после отладки стабильной работы первой части.
-> - Интерфейс управления доменами: локальное веб-приложение (Streamlit или FastAPI) для добавления, удаления и изменения периодичности сканирования областей.
-> - Интерактивная карта ландшафта: UMAP/t-SNE + кластеризация по эмбеддингам; где группируются основные игроки, где нишевые форки.
-> - Аналитические графики: динамика роста звезд (stars_delta), индексы активности (Velocity), изменения технологического стека по проектам.
+> **Part 2: Dashboard and landscape visualisation**: after Part 1 runs stably.
+> - Domain management interface: a local web application (Streamlit or FastAPI) for adding, removing and changing the scan frequency of areas.
+> - Interactive landscape map: UMAP/t-SNE plus clustering over embeddings; where the main players cluster, where the niche forks are.
+> - Analytics charts: star growth dynamics (stars_delta), activity indices (Velocity), technology stack changes per project.
 >
-> Note: for triage by local models and Telegram access there is an example: `as.tegerun.cli`. Use similar approaches where they fit.
+> Note: for triage by local models and Telegram access there is an example: an earlier private prototype. Use similar approaches where they fit.
 
 ## 2. Requirement IDs (traceability)
 
-Every task in the plan cites the IDs it implements. Coverage matrix: [ROADMAP § coverage](../plans/ROADMAP.md#requirement-coverage).
+Every task in the [archived plan](../archive/plans/ROADMAP.md) cites the IDs it implements. Coverage matrix: [ROADMAP § coverage](../archive/plans/ROADMAP.md#requirement-coverage).
 
 | ID | Requirement (EN) | Interpretation / acceptance |
 |---|---|---|

@@ -1,4 +1,4 @@
--- P2-T03: cached 2-D projection + clusters for the dashboard landscape map.
+-- Cached 2-D projection + clusters for the dashboard landscape map.
 -- payload is JSON; params_hash covers the projected vectors' content and the parameters, so a changed
 -- vector set or parameter makes the row stale. One row per (domain, model, method).
 CREATE TABLE landscape_cache (

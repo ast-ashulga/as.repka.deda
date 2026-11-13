@@ -3,6 +3,7 @@ import json
 import os
 
 import pytest
+from test_pipeline import Fakes, patch_boundaries, preflight_ok, write_domain  # noqa: F401  (autouse fixture)
 
 from repka import pipeline, run_cli
 from repka.cli import main
@@ -12,7 +13,6 @@ from repka.progress.render import make_renderer
 from repka.store import repo
 from repka.store.db import connect, migrate
 from repka.triage.deciders import WorkerError
-from test_pipeline import Fakes, patch_boundaries, preflight_ok, write_domain  # noqa: F401  (autouse fixture)
 
 FULL_CFG = "triage:\n  enabled: true\nembed:\n  enabled: true\n"
 
