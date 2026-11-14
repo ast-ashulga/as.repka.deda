@@ -53,5 +53,4 @@ Use the issue templates for bugs and feature requests. For vulnerabilities see [
 
 ## License
 
-<!-- TODO(maintainer): no license has been chosen yet. Add a LICENSE file and state it here before inviting contributions. -->
-No license has been chosen yet. Until one is added, contributions cannot be accepted.
+repka is released under the [MIT License](LICENSE). By submitting a contribution you agree that it is licensed under the same terms.

@@ -220,3 +220,7 @@ scheduling come next in **[Getting started](docs/getting-started.md)**.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose a change; developer and agent notes are in
 [CLAUDE.md](CLAUDE.md). `uv run pytest -q` (never touches the network) and `uv run ruff check src tests` must pass.
+
+## License
+
+[MIT](LICENSE).

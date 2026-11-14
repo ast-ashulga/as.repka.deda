@@ -34,7 +34,8 @@ One `repka run` pass: preflight → lock → for each **due** domain: collect �
 as.repka.deda/
 ├── pyproject.toml            # package "repka", script "repka = repka.cli:main"
 ├── uv.lock                   # committed
-├── .config.yaml              # tracked defaults, all flags false
+├── .config.yaml.example      # tracked public template, all flags false
+├── .config.yaml              # your settings (gitignored; copy of the example)
 ├── .env.example              # REPKA_GITHUB_TOKEN= (optional), REPKA_TG_API_ID=, REPKA_TG_API_HASH=
 ├── .sessions/                # Telegram session (gitignored, 0700; created by `repka notify login`)
 ├── CLAUDE.md                 # agent guide for the codebase
@@ -78,7 +79,7 @@ as.repka.deda/
 | `REPKA_TG_API_ID`, `REPKA_TG_API_HASH` | telegram sender (Telegram app credentials; passed only to the fast-mcp-telegram subprocess) |
 | `REPKA_HOME` (optional) | overrides `PROJECT_ROOT` |
 
-### 3.2 `.config.yaml` (tracked; every key optional; defaults shown; **all booleans default `false`**)
+### 3.2 `.config.yaml` (gitignored; `.config.yaml.example` is the tracked template; every key optional; defaults shown; **all booleans default `false`**)
 
 ```yaml
 github:
