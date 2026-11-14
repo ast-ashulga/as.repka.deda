@@ -33,7 +33,7 @@ uv run repka domain new              # 1. describe a domain; writes domains/<id>
 uv run repka domain plan <id>        # 2. see the GitHub queries it will run and the first-scan window
 ```
 
-Turn on triage and embeddings in `.config.yaml` (flags are off by default; see [Configuration](configuration.md)):
+Turn on triage and embeddings in `.config.yaml` (`cp .config.yaml.example .config.yaml` first if you do not have one; flags are off by default; see [Configuration](configuration.md)):
 
 ```yaml
 triage: {enabled: true}   # needs ./deciders/setup.sh and ./deciders/setup.sh --download d1-3B

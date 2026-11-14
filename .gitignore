@@ -12,6 +12,7 @@ htmlcov/
 
 # repka local state and secrets (never commit)
 .env
+.config.yaml
 .sessions/
 .state/
 logs/

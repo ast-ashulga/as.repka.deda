@@ -1,4 +1,5 @@
-# repka configuration. Every key is optional; the values below are exactly the defaults built into the code,
+# repka configuration example. Copy to .config.yaml (that file is gitignored and holds your own settings).
+# Every key is optional; the values below are exactly the defaults built into the code,
 # so deleting a line changes nothing. Unknown keys and wrong types are rejected at startup.
 # Every boolean defaults to false: turn a feature on here yourself (see docs/configuration.md).
 # Secrets never go here: see .env.example.

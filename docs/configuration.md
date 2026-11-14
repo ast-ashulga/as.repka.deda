@@ -4,10 +4,11 @@
 
 ## Configuration
 
-`.config.yaml` holds all settings; every key is optional, and the defaults built into the code (the ones in the table
-below and in the architecture doc) have every flag `false`. The `.config.yaml` that ships with the repo lists exactly
-those defaults, so a fresh clone sends nothing and runs no model until you switch something on (`repka doctor` shows
-the effect of your changes). Unknown keys and wrong types are rejected at startup
+`.config.yaml` holds all settings; it is your own file and is gitignored. Every key is optional, and the defaults built
+into the code (the ones in the table below and in the architecture doc) have every flag `false`. `.config.yaml.example`
+ships with the repo and lists exactly those defaults (`cp .config.yaml.example .config.yaml` to start from it), so a
+fresh clone sends nothing and runs no model until you switch something on (`repka doctor` shows the effect of your
+changes). Unknown keys and wrong types are rejected at startup
 naming the key. The full key list with comments is in
 [the architecture spec, configuration section](../wiki/spec/architecture.md#3-configuration). Secrets live only in `.env`
 (copy `.env.example`): `REPKA_GITHUB_TOKEN` (optional, empty = `gh auth token`), `REPKA_TG_API_ID`,

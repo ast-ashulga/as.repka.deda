@@ -81,20 +81,20 @@ def test_worker_env_has_no_secrets(monkeypatch):
     assert not set(secrets.values()) & set(env.values())
 
 
-def test_tracked_config_is_valid():
-    load_config(REPO_ROOT / ".config.yaml")
+def test_example_config_is_valid():
+    load_config(REPO_ROOT / ".config.yaml.example")
 
 
-def test_tracked_config_equals_the_code_defaults():
-    """The shipped .config.yaml says its values are the defaults: every boolean false, every value equal."""
-    tracked = load_config(REPO_ROOT / ".config.yaml")
+def test_example_config_equals_the_code_defaults():
+    """The shipped .config.yaml.example says its values are the defaults: every boolean false, every value equal."""
+    tracked = load_config(REPO_ROOT / ".config.yaml.example")
     defaults = load_config(REPO_ROOT / "does-not-exist.yaml")
     for section in dataclasses.fields(defaults):
         got, want = getattr(tracked, section.name), getattr(defaults, section.name)
         for f in dataclasses.fields(want):
             value = getattr(got, f.name)
             if isinstance(value, bool):
-                assert value is False, f"{section.name}.{f.name} must be false in the tracked .config.yaml"
+                assert value is False, f"{section.name}.{f.name} must be false in .config.yaml.example"
             assert value == getattr(want, f.name), f"{section.name}.{f.name} differs from the code default"
     assert tracked == defaults
 
@@ -211,9 +211,13 @@ def test_digest_bad_values_name_the_key(raw, message):
 
 def test_shipped_domains_never_run_by_accident():
     """A fresh clone must not scan anything: every shipped domain file is valid and disabled."""
-    from repka.domain.schema import load_domain, load_domains
+    from repka.domain.schema import load_domain
 
-    assert not [d.id for d in load_domains(REPO_ROOT / "domains") if d.enabled]
+    # Only the tracked examples count: the user's own domains/<id>.yaml are gitignored and may be enabled.
+    shipped = sorted((REPO_ROOT / "domains").glob("example-*.yaml"))
+    assert shipped
+    for path in shipped:
+        assert load_domain(path).enabled is False, path.name
     examples = sorted((REPO_ROOT / "domains" / "examples").glob("*.yaml"))
     assert examples
     for path in examples:
