@@ -16,7 +16,18 @@ Local models decide what is relevant. Your repository data never leaves your Mac
 [Use it with an AI agent](#using-it-with-an-ai-agent) ·
 [Try it](#try-it-in-5-minutes) ·
 [User guides](#user-guides) ·
-[Troubleshooting](docs/troubleshooting.md)
+[Troubleshooting](docs/troubleshooting.md) ·
+[⭐ Star](https://github.com/ast-ashulga/as.repka.deda)
+
+<br>
+
+### ⭐ Like the idea? Give repka a star
+
+It takes one click, costs nothing, and is the best way to help other people find a private GitHub radar.
+
+[![Star repka on GitHub](https://img.shields.io/github/stars/ast-ashulga/as.repka.deda?style=for-the-badge&logo=github&label=Star%20repka&color=e3b341)](https://github.com/ast-ashulga/as.repka.deda)
+
+<sub>Thank you. It is the only thing the project asks of you.</sub>
 
 </div>
 
