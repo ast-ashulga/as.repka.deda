@@ -261,6 +261,9 @@ def _domain_section(
         m = repo_metrics(conn, repo_id, now)
         if m is None or m.stars_delta_1d is None or m.stars_delta_1d < cfg.star_spike_min_delta:
             continue
+        before = m.stars - m.stars_delta_1d  # a big repo gaining 0.1% a day is not a spike
+        if before > 0 and m.stars_delta_1d * 100 < cfg.star_spike_min_pct * before:
+            continue
         mover_fields: dict[str, Any] = {
             "stars_delta_1d": m.stars_delta_1d,
             "velocity": m.velocity,

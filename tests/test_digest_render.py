@@ -194,6 +194,16 @@ def test_insights_more_counter_by_kind():
     assert not any(ln.startswith("…and") and "more:" not in ln for ln in render_digest(d))  # no per-section line
 
 
+def test_insights_more_counter_hint_only_for_queued_kinds():
+    # stack and mover overflow is not kept, `repka digest --more` cannot list it
+    d = idigest(new_repos=[item("new", stars=1, facets=[])], more_by_kind={"stack": 5})
+    assert render_digest(d)[-1] == "…and 5 more: 5 🧩"
+    d = idigest(new_repos=[item("new", stars=1, facets=[])], more_by_kind={"mover": 2, "stack": 1})
+    assert "digest --more" not in render_digest(d)[-1]
+    d = idigest(new_repos=[item("new", stars=1, facets=[])], more_by_kind={"release": 2, "stack": 1})
+    assert render_digest(d)[-1] == "…and 3 more: 1 🧩, 2 🚀 (repka digest --more)"
+
+
 def test_insights_more_counter_sums_sections():
     a = DigestSection("d1", "A", new_repos=[item("new", stars=1, facets=[])], more=2, more_by_kind={"new": 2})
     b = DigestSection("d2", "B", new_repos=[item("new", stars=1, facets=[])], more=4, more_by_kind={"new": 1, "mover": 3})

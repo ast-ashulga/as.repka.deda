@@ -126,6 +126,7 @@ class DigestConfig:
     max_items_per_domain: int = 10
     new_max_age: timedelta = timedelta(days=90)  # a first-seen repo created within this age is "new"
     star_spike_min_delta: int = 50  # stars_delta_1d threshold for the "top movers" section
+    star_spike_min_pct: float = 2.0  # ... and the daily growth in percent of the stars a day ago (0 = off)
     insights: bool = False  # digest insights section (needs releases_message and a triage model)
     releases_message: bool = False  # separate releases message at releases_slot
     releases_slot: str = "09:00"  # local time HH:MM for the releases message
@@ -252,6 +253,13 @@ def _probability(key: str, value: Any) -> float:
     return p
 
 
+def _percent(key: str, value: Any) -> float:
+    pct = _number(key, value)
+    if pct < 0:
+        raise ConfigError(f"{key} must be 0 or more (got {value!r})")
+    return pct
+
+
 def _duration(key: str, value: Any) -> timedelta:
     try:
         return parse_duration(value)
@@ -360,6 +368,7 @@ def load_digest(raw: Any) -> DigestConfig:
             "max_items_per_domain": _int,
             "new_max_age": _duration,
             "star_spike_min_delta": _int,
+            "star_spike_min_pct": _percent,
             "insights": _bool,
             "releases_message": _bool,
             "releases_slot": _slot,

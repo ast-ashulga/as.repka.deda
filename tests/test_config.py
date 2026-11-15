@@ -182,6 +182,12 @@ def test_digest_new_keys_default_off(home):
     assert cfg.digest.pending_max_age == timedelta(days=7)
 
 
+def test_digest_star_spike_pct():
+    assert load_digest({}).star_spike_min_pct == 2.0
+    assert load_digest({"star_spike_min_pct": 0}).star_spike_min_pct == 0.0
+    assert load_digest({"star_spike_min_pct": 5}).star_spike_min_pct == 5.0
+
+
 def test_digest_new_keys_parse():
     d = load_digest({"insights": True, "releases_slot": "07:15", "facet_min_p": 0.5, "pending_max_age": "3d"})
     assert d.insights is True
@@ -197,6 +203,8 @@ def test_digest_new_keys_parse():
         ({"releases_slot": "25:00"}, "digest.releases_slot must be a local time HH:MM"),
         ({"facet_min_p": 1.5}, "digest.facet_min_p must be above 0 and at most 1"),
         ({"facet_min_p": 0}, "digest.facet_min_p must be above 0 and at most 1"),
+        ({"star_spike_min_pct": -1}, "digest.star_spike_min_pct must be 0 or more"),
+        ({"star_spike_min_pct": "2%"}, "digest.star_spike_min_pct must be a number"),
         ({"insights": "yes"}, "digest.insights must be true or false"),
         ({"releases_message": 1}, "digest.releases_message must be true or false"),
         ({"pending_max_age": "soon"}, "digest.pending_max_age: bad duration 'soon'"),

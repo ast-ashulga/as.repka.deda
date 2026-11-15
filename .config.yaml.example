@@ -40,6 +40,7 @@ digest:
   max_items_per_domain: 10
   new_max_age: 90d             # a first-seen repo created within this age is "new", older ones are "found"
   star_spike_min_delta: 50     # stars_delta_1d threshold for the "top movers" digest section
+  star_spike_min_pct: 2.0      # ... and the daily growth in % of the stars a day ago (0 = no relative check)
   insights: false              # digest insights section; enable together with releases_message
   releases_message: false      # separate releases message at releases_slot
   releases_slot: "09:00"       # local time HH:MM for the releases message

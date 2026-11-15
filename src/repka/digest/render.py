@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from repka.digest.build import Digest
+from repka.digest.build import PENDING_LINE_KINDS, Digest
 from repka.models import DigestItem
 from repka.textutil import html_escape, printable, truncate
 
@@ -145,7 +145,10 @@ def _insights_footer(d: Digest) -> list[str]:
             by_kind[kind] = by_kind.get(kind, 0) + n
     if total:
         split = ", ".join(f"{by_kind[k]} {_LEGEND[k][0]}" for k in _LEGEND if by_kind.get(k))
-        out.append(f"…and {total} more{': ' + split if split else ''} (repka digest --more)")
+        # `--more` lists only the items that wait in the queue; stack and mover overflow is not kept, so no hint then
+        waiting = any(by_kind.get(k) for k in PENDING_LINE_KINDS)
+        hint = " (repka digest --more)" if waiting else ""
+        out.append(f"…and {total} more{': ' + split if split else ''}{hint}")
     return out
 
 

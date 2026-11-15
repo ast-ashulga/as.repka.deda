@@ -118,6 +118,21 @@ def test_mover_not_repeated_within_24h(conn):
     assert [i.repo_id for i in items(build(conn))] == [1]
 
 
+def test_mover_needs_relative_growth_too(conn):
+    t_old = NOW - timedelta(days=2)
+    # (repo, stars a day ago, stars now): +100 on 500 = 20%, +100 on 100000 = 0.1%, +60 on 1000 = 6%
+    for r, before, now_stars in ((1, 500, 600), (2, 100_000, 100_100), (3, 1000, 1060)):
+        add_repo(conn, r, stars=before, taken_at=t_old)
+        add_snapshot(conn, r, now_stars, NOW - timedelta(hours=1))
+        add_verdict(conn, r, True)
+    d = build(conn, DigestConfig(star_spike_min_delta=50, star_spike_min_pct=2.0))
+    assert [i.repo_id for i in items(d)] == [1, 3]  # the 0.1% repo is not a spike
+    off = build(conn, DigestConfig(star_spike_min_delta=50, star_spike_min_pct=0))
+    assert [i.repo_id for i in items(off)] == [1, 2, 3]  # 0 switches the relative check off
+    strict = build(conn, DigestConfig(star_spike_min_delta=50, star_spike_min_pct=10))
+    assert [i.repo_id for i in items(strict)] == [1]
+
+
 def test_new_repo_ranking(conn):
     specs = {
         1: (2, 0.5, 100),

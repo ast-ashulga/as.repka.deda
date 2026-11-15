@@ -15,7 +15,7 @@ naming the key. The full key list with comments is in
 `REPKA_TG_API_HASH`. Logs go to `logs/repka.log`.
 
 The switches that matter (this table is partial: it leaves out, for example, `github.*`, `embed.model`, `notify.chat_id`,
-`notify.topic_id`, `triage.thresholds`, `digest.new_max_age`, `digest.star_spike_min_delta` and `run.log_level`; every key with its
+`notify.topic_id`, `triage.thresholds`, `digest.new_max_age`, `digest.star_spike_min_delta`, `digest.star_spike_min_pct` and `run.log_level`; every key with its
 default is in [the architecture spec](../wiki/spec/architecture.md#3-configuration)):
 
 | Key | Default | Effect |
